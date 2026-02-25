@@ -1,0 +1,5 @@
+{
+  "name": "Academic Narrator",
+  "description": "Upload academic PDFs to have them intelligently narrated, skipping boilerplate and explaining complex figures automatically.",
+  "requestFramePermissions": []
+}
