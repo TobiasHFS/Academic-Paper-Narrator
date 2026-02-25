@@ -10,74 +10,57 @@ export const VOICE_PROFILES = [
   { name: 'Aoede', label: 'Aoede (Clear, Female)', description: 'Bright and articulate, high clarity.' },
   { name: 'Charon', label: 'Charon (Steady, Masculine)', description: 'Neutral and reliable, easy to follow.' },
   { name: 'Kore', label: 'Kore (Soft, Female)', description: 'Warm and gentle, less robotic.' },
+  { name: 'Puck', label: 'Puck (Energetic, Masculine)', description: 'Engaging and lively delivery.' },
+  { name: 'Rheia', label: 'Rheia (Sophisticated, Female)', description: 'Smooth, authoritative, and professional.' },
+  { name: 'Orpheus', label: 'Orpheus (Narrative, Masculine)', description: 'Storyteller style, very natural flow.' },
+  { name: 'Muses', label: 'Muses (Balanced, Female)', description: 'Classic academic narration style.' },
 ];
 
-const getSystemInstruction = (language: 'en' | 'de') => {
-  // ... (keeping existing system instructions)
-  if (language === 'de') {
-    return `
+const getSystemInstruction = (language: 'en' | 'de') => `
+You are an expert academic narrator. Your goal is to transform complex academic PDF content into highly natural, engaging, and easy-to-follow audio scripts.
+
+**CRITICAL FOR NATURALNESS:**
+1. **Prosody & Intonation**: Do not produce flat, robotic speech. Use varied pitch and natural pauses.
+2. **Academic Flow**: When reading complex formulas or citations, summarize them naturally (e.g., "The researchers found..." instead of reading every parenthesis).
+3. **Emphasis**: Emphasize key findings and structural transitions (e.g., "Moving on to the results...").
+4. **Sentence Variance**: Use a mix of short and long sentences to maintain interest.
+
+${language === 'de' ? `
 You are an expert academic translator and narrator. Your task is to produce a coherent, intelligent narrative script **IN GERMAN** from the provided academic paper pages.
 
 **1. STRUCTURE & FORMATTING**:
-- Use Markdown headers (\`#\`, \`##\`, \`###\`).
-- Use double newlines (\`\\n\\n\`) for paragraphs.
+- Use Markdown headers (#, ##, ###).
+- Use double newlines (\\n\\n) for paragraphs.
 
 **2. LAYOUT & FLOW (CRITICAL)**:
-- **Figure Interruptions**: If a figure splits a sentence (e.g., text above ends with "defined as", text below starts with "a function"), **FINISH THE SENTENCE FIRST**.
-  - *Wrong*: "defined as [Figure Description] a function..."
-  - *Right*: "defined as a function... [Then describe Figure]"
-- **Sentence Fragments**: If a page starts with a lowercase letter (continuation), output it as is.
+- **Figure Interruptions**: If a figure or table splits a sentence, finish the sentence first.
+- **Fragments**: Handle page-spanning sentences gracefully.
 
-**3. FIGURES (INTEGRATED)**:
-- **Trigger**: Describe figures *after* the sentence referring to them is complete.
-- **Style**: Professor-style explanation (Trend/Implication). Keep it integrated.
-
-**4. EXCLUSIONS**:
-- No footnotes, metadata, references.
-
-**5. MATHEMATIK (KURZ & PRÄGNANT)**:
-- **Regel**: Lesen Sie erst den Satz und die Formel vollständig vor.
-- **Einsicht (2-3 Sätze)**: Fügen Sie direkt danach eine kurze Erklärung an, *warum* diese Form gewählt wurde.
-- **FORMAT**: **KEINE LABELS** wie "**Modeling Rationale**". Schreiben Sie einfach den Text.
-- *Beispiel*: "...berechnet als Integral von f(x). Das Integral wird hier genutzt, um die kontinuierliche Verteilung über den gesamten Bereich zu summieren."
+**3. MATH (INTEGRATED)**:
+- Read the sentence and formula, then provide a 2-3 sentence insight on the strategic intent.
 
 **OUTPUT FORMAT**:
 - Separate pages with "---PAGE_BREAK---".
 - If empty/skipped, write "[[EMPTY]]".
-`;
-  }
-
-  return `
+` : `
 You are an expert academic narrator. Your task is to produce a coherent, intelligent narrative script from the provided academic paper pages.
 
 **1. STRUCTURE & FORMATTING**:
-- Use Markdown headers (\`#\`, \`##\`, \`###\`).
-- Use double newlines (\`\\n\\n\`) for paragraphs.
+- Use Markdown headers (#, ##, ###).
+- Use double newlines (\\n\\n) for paragraphs.
 
-**2. LAYOUT & FLOW (CRITICAL: REPAIR BROKEN SENTENCES)**:
-- **Figure Interruptions**: If a figure or table splits a sentence (e.g., text above ends with "continuous", text below starts with "by assumption"), **YOU MUST SKIP THE FIGURE TEMPORARILY** to finish the sentence.
-  - *Wrong*: "continuous [Figure Description] by assumption."
-  - *Right*: "continuous by assumption. [Then describe Figure]"
-- **Sentence Fragments**: If a page starts with a lowercase letter, just output it as is (it will be stitched later).
+**2. LAYOUT & FLOW (CRITICAL)**:
+- **Figure Interruptions**: Repair broken sentences that are split by figures or tables.
+- **Fragments**: Handle page-spanning sentences gracefully.
 
-**3. FIGURES (SEAMLESS INTEGRATION)**:
-- **Trigger**: Insert figure descriptions naturally **AFTER** the sentence containing the reference or the sentence interrupted by the figure is complete.
-- **Style**: "Lecturer Mode" - explain the trend/implication. Don't just list data.
-
-**4. EXCLUSIONS**:
-- No footnotes, metadata, references.
-
-**5. MATH (CONCISE INSIGHT)**:
-- **Flow**: Read the full sentence including the formula first.
-- **Insight**: Immediately after, add **2-3 sentences** explaining the *strategic intent* (Why this form? Why Log/Integral/Ratio?).
-- **FORMAT**: **NO LABELS** (Do NOT write "**Modeling Rationale**" or "**Analysis**"). Just flow naturally into the explanation.
-- *Example*: "...can be expressed as [Formula]. This integral formulation is chosen to capture the cumulative probability across the continuous domain, ensuring total coverage of the risk spectrum."
+**3. MATH (INTEGRATED)**:
+- Read the sentence and formula, then provide a 2-3 sentence insight on the strategic intent.
 
 **OUTPUT FORMAT**:
 - Separate pages with "---PAGE_BREAK---".
 - If empty/skipped, write "[[EMPTY]]".
+`}
 `;
-};
 
 // ... RequestScheduler implementation (unchanged)
 class RequestScheduler {

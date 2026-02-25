@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
-import { Upload, FileText, AlertCircle, Headphones, Play, Pause, Loader2 } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Upload, FileText, AlertCircle, Headphones, Play, Loader2, Sparkles } from 'lucide-react';
 import { VOICE_PROFILES, generateVoicePreview } from '../services/geminiService';
+import { getPreview, savePreview } from '../services/storageService';
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
@@ -28,6 +29,16 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -68,27 +79,50 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   };
 
   const handlePreviewVoice = async (voiceName: string) => {
+    // If clicking same voice that is playing: Toggle Pause
     if (previewingVoice === voiceName) {
       previewAudioRef.current?.pause();
       setPreviewingVoice(null);
       return;
     }
 
+    // Stop existing preview
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+
     setPreviewingVoice(voiceName);
+
     try {
-      const url = await generateVoicePreview(voiceName, language);
-      if (previewAudioRef.current) {
-        previewAudioRef.current.src = url;
-        previewAudioRef.current.play();
-        previewAudioRef.current.onended = () => setPreviewingVoice(null);
+      const cacheKey = `${voiceName}_${language}_preview`;
+      let audioUrl: string;
+
+      // 1. Check persistent cache
+      const cachedBlob = await getPreview(cacheKey);
+      if (cachedBlob) {
+        audioUrl = URL.createObjectURL(cachedBlob);
       } else {
-        const audio = new Audio(url);
-        previewAudioRef.current = audio;
-        audio.play();
-        audio.onended = () => setPreviewingVoice(null);
+        // 2. Fetch from API
+        const blobUrl = await generateVoicePreview(voiceName, language);
+        audioUrl = blobUrl;
+
+        // 3. Save to persistent cache
+        const response = await fetch(blobUrl);
+        const blob = await response.blob();
+        await savePreview(cacheKey, blob);
       }
+
+      if (previewAudioRef.current) {
+        previewAudioRef.current.src = audioUrl;
+      } else {
+        previewAudioRef.current = new Audio(audioUrl);
+      }
+
+      previewAudioRef.current.play();
+      previewAudioRef.current.onended = () => setPreviewingVoice(null);
     } catch (e) {
-      console.error(e);
+      console.error('Preview error:', e);
       setPreviewingVoice(null);
     }
   };
@@ -144,26 +178,38 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         {/* Voice Selection (Only in Audio Mode) */}
         {mode === 'audio' && (
           <div className="flex flex-col items-center gap-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Voice</span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
-              {VOICE_PROFILES.map((voice) => (
-                <div
-                  key={voice.name}
-                  className={`relative flex items-center p-3 rounded-xl border-2 transition-all cursor-pointer ${selectedVoice === voice.name ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-                  onClick={() => onVoiceChange(voice.name)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className={`font-semibold text-sm ${selectedVoice === voice.name ? 'text-indigo-700' : 'text-slate-700'}`}>{voice.label}</p>
-                    <p className="text-xs text-slate-500 truncate">{voice.description}</p>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handlePreviewVoice(voice.name); }}
-                    className={`ml-2 p-2 rounded-full transition-all ${previewingVoice === voice.name ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3 h-3 text-indigo-500" />
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Narrative Voice</span>
+            </div>
+
+            {/* Scrollable Gallery */}
+            <div className="w-full max-w-xl bg-slate-50 p-2 rounded-2xl border border-slate-100">
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                {VOICE_PROFILES.map((voice) => (
+                  <div
+                    key={voice.name}
+                    className={`flex-none w-48 relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${selectedVoice === voice.name ? 'border-indigo-500 bg-white ring-4 ring-indigo-50 shadow-md' : 'border-transparent bg-white/60 hover:border-slate-200 shadow-sm'}`}
+                    onClick={() => onVoiceChange(voice.name)}
                   >
-                    {previewingVoice === voice.name ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  </button>
-                </div>
-              ))}
+                    <div className="flex-1 mb-3">
+                      <p className={`font-bold text-sm ${selectedVoice === voice.name ? 'text-indigo-700' : 'text-slate-700'}`}>{voice.label.split(' (')[0]}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter mt-0.5">{voice.label.match(/\(([^)]+)\)/)?.[1]}</p>
+                      <p className="text-[11px] text-slate-500 mt-2 leading-tight line-clamp-2">{voice.description}</p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handlePreviewVoice(voice.name); }}
+                      className={`flex items-center justify-center gap-2 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${previewingVoice === voice.name ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {previewingVoice === voice.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                      {previewingVoice === voice.name ? 'Playing' : 'Preview'}
+                    </button>
+                    {selectedVoice === voice.name && (
+                      <div className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full"></div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
