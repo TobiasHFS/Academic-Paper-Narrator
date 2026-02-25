@@ -157,7 +157,7 @@ export const extractScriptBatch = async (
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-2.0-flash',
+    model: 'gemini-3-flash',
     contents: [{ parts }],
     systemInstruction: getSystemInstruction(language),
     generationConfig: {
