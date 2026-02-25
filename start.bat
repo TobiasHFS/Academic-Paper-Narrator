@@ -2,6 +2,9 @@
 TITLE Academic Paper Narrator - Launcher
 SETLOCAL EnableDelayedExpansion
 
+:: Ensure we are in the script's directory
+cd /d "%~dp0"
+
 echo ===================================================
 echo       Academic Paper Narrator Launcher
 echo ===================================================
@@ -16,15 +19,23 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Handle API Key / .env
-IF NOT EXIST .env (
+set ENV_EXISTS=0
+IF EXIST .env (
+    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1
+    if %errorlevel% equ 0 set ENV_EXISTS=1
+)
+
+IF !ENV_EXISTS! equ 0 (
     echo.
-    echo [!] First run detected: .env file missing.
+    echo [!] Gemini API Key not found in .env
     echo Please enter your Google Gemini API Key.
     echo (You can get one at: https://aistudio.google.com/app/apikey)
     echo.
     set /p API_KEY="Enter API Key: "
+    
+    :: Use >> to append or > to create/overwrite
     echo VITE_GEMINI_API_KEY=!API_KEY! > .env
-    echo [^+] .env file created successfully.
+    echo [^+] .env file updated successfully.
 )
 
 :: 3. Install dependencies if missing
@@ -35,7 +46,7 @@ if not exist "node_modules" (
 
 :: 4. Start the app
 echo.
-echo [SUCCESS] Starting the application...
+echo [^+] Starting the application...
 echo ---------------------------------------------------
 echo  1. Keep this window open while using the app.
 echo  2. Close this window to stop the app.
