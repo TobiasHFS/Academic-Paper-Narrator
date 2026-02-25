@@ -112,7 +112,7 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
   while (true) {
     try {
       const res = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
+        model: "gemini-1.5-flash",
         contents: [{ parts: [{ text }] }],
         config: {
           responseModalities: [Modality.AUDIO],
@@ -155,7 +155,7 @@ export const extractScriptBatch = async (
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-1.5-flash',
     contents: { parts },
     config: {
       systemInstruction: getSystemInstruction(language),
