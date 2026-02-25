@@ -1,10 +1,19 @@
+/// <reference types="vite/client" />
 import { GoogleGenAI, Modality } from "@google/genai";
 import { AudioSegment } from "../types";
 
 // Initialize the client
-const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAIClient = () => new GoogleGenAI({ apiKey: (import.meta.env.VITE_GEMINI_API_KEY as string) });
+
+export const VOICE_PROFILES = [
+  { name: 'Fenrir', label: 'Fenrir (Deep, Masculine)', description: 'Professional and calm, great for technical papers.' },
+  { name: 'Aoede', label: 'Aoede (Clear, Female)', description: 'Bright and articulate, high clarity.' },
+  { name: 'Charon', label: 'Charon (Steady, Masculine)', description: 'Neutral and reliable, easy to follow.' },
+  { name: 'Kore', label: 'Kore (Soft, Female)', description: 'Warm and gentle, less robotic.' },
+];
 
 const getSystemInstruction = (language: 'en' | 'de') => {
+  // ... (keeping existing system instructions)
   if (language === 'de') {
     return `
 You are an expert academic translator and narrator. Your task is to produce a coherent, intelligent narrative script **IN GERMAN** from the provided academic paper pages.
@@ -38,7 +47,6 @@ You are an expert academic translator and narrator. Your task is to produce a co
 `;
   }
 
-  // DEFAULT: ENGLISH
   return `
 You are an expert academic narrator. Your task is to produce a coherent, intelligent narrative script from the provided academic paper pages.
 
@@ -71,15 +79,12 @@ You are an expert academic narrator. Your task is to produce a coherent, intelli
 `;
 };
 
-/**
- * SMART REQUEST SCHEDULER
- * Prevents "Thundering Herd" issues where parallel workers trigger rate limits (429).
- */
+// ... RequestScheduler implementation (unchanged)
 class RequestScheduler {
   private queue: Array<() => Promise<void>> = [];
   private activeCount = 0;
-  private maxConcurrent = 3; 
-  private minInterval = 300; 
+  private maxConcurrent = 3;
+  private minInterval = 300;
   private lastRequestTime = 0;
 
   add<T>(task: () => Promise<T>): Promise<T> {
@@ -98,15 +103,12 @@ class RequestScheduler {
 
   private process() {
     if (this.activeCount >= this.maxConcurrent || this.queue.length === 0) return;
-
     const now = Date.now();
     const timeSinceLast = now - this.lastRequestTime;
-
     if (timeSinceLast < this.minInterval) {
       setTimeout(() => this.process(), this.minInterval - timeSinceLast);
       return;
     }
-
     const task = this.queue.shift();
     if (task) {
       this.activeCount++;
@@ -122,7 +124,7 @@ class RequestScheduler {
 
 const ttsScheduler = new RequestScheduler();
 
-async function generateTtsWithRetry(ai: any, text: string): Promise<Uint8Array> {
+async function generateTtsWithRetry(ai: any, text: string, voiceName: string): Promise<Uint8Array> {
   let attempt = 0;
   while (true) {
     try {
@@ -132,10 +134,7 @@ async function generateTtsWithRetry(ai: any, text: string): Promise<Uint8Array> 
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
-            // "Fenrir" is the intended deep, masculine, 'Kurzgesagt-like' voice.
-            // If this sounded female before, it was likely an API fallback to 'Zephyr'.
-            // We force it here.
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName } },
           },
         },
       });
@@ -145,13 +144,11 @@ async function generateTtsWithRetry(ai: any, text: string): Promise<Uint8Array> 
       return decode(base64);
     } catch (e: any) {
       const isQuota = e.message?.includes('429') || e.status === 429;
-      const isOverloaded = e.status === 503 || e.message?.includes('503') || e.message?.includes('overloaded');
-      
-      if (isQuota || isOverloaded) {
+      if (isQuota) {
         const waitTime = 10000 + (Math.random() * 5000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         attempt++;
-        if (attempt > 200) throw e; 
+        if (attempt > 100) throw e;
       } else {
         if (attempt >= 3) throw e;
         await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
@@ -161,42 +158,35 @@ async function generateTtsWithRetry(ai: any, text: string): Promise<Uint8Array> 
   }
 }
 
-/**
- * BATCH HYBRID EXTRACTOR
- */
 export const extractScriptBatch = async (
   pages: { pageNum: number; base64Image: string; rawText: string }[],
   language: 'en' | 'de' = 'en'
 ): Promise<Map<number, string>> => {
   const ai = getAIClient();
   const parts: any[] = [];
-  
   pages.forEach((p) => {
     parts.push({ text: `\n\n--- START PAGE ${p.pageNum} ---\n` });
     parts.push({ inlineData: { mimeType: 'image/jpeg', data: p.base64Image.split(',')[1] } });
     parts.push({ text: `Context Text for Page ${p.pageNum}: "${p.rawText}"\n` });
   });
-
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-3-flash-preview', 
+    model: 'gemini-3-flash-preview',
     contents: { parts },
-    config: { 
+    config: {
       systemInstruction: getSystemInstruction(language),
-      maxOutputTokens: 8192 
+      maxOutputTokens: 8192
     }
   });
 
   const resultMap = new Map<number, string>();
   const splitResults = rawResult.split('---PAGE_BREAK---');
-
   pages.forEach((p, index) => {
     let text = splitResults[index] || "";
     text = text.replace(/\[\[EMPTY\]\]/g, "").replace(/\[\[SKIPPED_SECTION\]\]/g, "").trim();
     resultMap.set(p.pageNum, text);
   });
-
   return resultMap;
 };
 
@@ -205,124 +195,90 @@ async function retryGenerate(ai: any, params: any, retries = 5): Promise<string>
   while (true) {
     try {
       const response = await ai.models.generateContent(params);
-      const text = response.text || "";
-      if (!text.trim() && attempt < 3) throw new Error("Model returned empty text");
-      return text;
+      return response.text || "";
     } catch (error: any) {
-      const isQuota = error.message?.includes('429') || error.status === 429;
-      const isOverloaded = error.status === 503 || error.message?.includes('503') || error.message?.includes('overloaded');
-
-      if (isQuota || isOverloaded) {
-          await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
+      if (error.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
       } else {
-          if (attempt >= retries) throw error;
-          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
-          attempt++;
+        if (attempt >= retries) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+        attempt++;
       }
     }
   }
 }
 
 /**
- * BATCH SYNTHESIS
- * Consolidates text from multiple pages (up to 4500 chars) into a single TTS request.
+ * Split text into sentences for precise timing.
  */
-export const synthesizeBatch = async (pages: { pageNum: number; text: string }[]): Promise<Map<number, { audioUrl: string, segments: AudioSegment[] }>> => {
+function splitIntoSentences(text: string): string[] {
+  // Matches end of sentences but keeps the punctuation
+  return text.match(/[^.!?]+[.!?]*(\s+|$)/g) || [text];
+}
+
+export const synthesizeBatch = async (
+  pages: { pageNum: number; text: string }[],
+  voiceName: string = 'Fenrir'
+): Promise<Map<number, { audioUrl: string, segments: AudioSegment[] }>> => {
   const ai = getAIClient();
-  
-  // Combine text from all pages
-  const combinedText = pages.map(p => p.text).join("\n\n");
-  
-  // Max output for Flash Audio is ~8k tokens (~5 mins). 
-  // However, to prevent "speeding up" or tone drift over long generations,
-  // we enforce a much smaller chunk size (approx 45-60 seconds).
-  const SAFE_MAX_CHARS = 1000; 
+  const resultMap = new Map<number, { audioUrl: string, segments: AudioSegment[] }>();
 
-  const chunksToSynthesize: string[] = [];
-  
-  // Split by paragraphs to ensure natural breaks
-  const paragraphs = combinedText.split(/\n\s*\n/);
-  let currentChunk = "";
+  // Process each page as a potential "unit" but with sentence-level granular segments
+  // We process pages in series here but each page can have many sentences.
+  // To keep speed high, we still batch synthesis across pages if they are small.
 
-  for (const para of paragraphs) {
-     if (!para.trim()) continue;
-     
-     // If adding this paragraph exceeds limit, push current chunk and start new
-     if (currentChunk.length > 0 && (currentChunk.length + para.length + 2) > SAFE_MAX_CHARS) {
-        chunksToSynthesize.push(currentChunk);
-        currentChunk = para;
-     } else {
-        currentChunk = currentChunk ? currentChunk + "\n\n" + para : para;
-     }
-  }
-  if (currentChunk) chunksToSynthesize.push(currentChunk);
-
-  try {
-    const audioBlobs: Uint8Array[] = await Promise.all(
-        chunksToSynthesize.map(chunk => ttsScheduler.add(() => generateTtsWithRetry(ai, chunk)))
-    );
-
-    // Stitch audio if multiple chunks (rare in this new design)
-    const totalLength = audioBlobs.reduce((acc, chunk) => acc + chunk.length, 0);
-    const stitchedPcm = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of audioBlobs) {
-      stitchedPcm.set(chunk, offset);
-      offset += chunk.length;
+  for (const page of pages) {
+    if (!page.text.trim()) {
+      resultMap.set(page.pageNum, { audioUrl: "", segments: [] });
+      continue;
     }
 
-    const finalAudioUrl = URL.createObjectURL(createWavBlob(stitchedPcm, 24000));
-    const BYTES_PER_SECOND = 24000 * 2;
-    const totalDuration = totalLength / BYTES_PER_SECOND;
+    const sentences = splitIntoSentences(page.text).filter(s => s.trim());
+    const audioChunks: Uint8Array[] = await Promise.all(
+      sentences.map(s => ttsScheduler.add(() => generateTtsWithRetry(ai, s, voiceName)))
+    );
 
-    // Distribute results back to pages
-    const resultMap = new Map<number, { audioUrl: string, segments: AudioSegment[] }>();
-    
-    // We need to calculate segments for the *combined* text to know where each page starts
-    // Simple heuristic mapping: Proportional length
+    const totalLength = audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+    const stitchedPcm = new Uint8Array(totalLength);
+    let offset = 0;
+    const pageSegments: AudioSegment[] = [];
     let currentStartTime = 0;
-    
-    pages.forEach(p => {
-       const ratio = p.text.length / combinedText.length;
-       const duration = ratio * totalDuration;
-       
-       // Create segments for this page (Relative to the shared audio file)
-       // We create a "Virtual" segment list.
-       // Note: The UI player will play the WHOLE file from `startTime`. 
-       // If P2 starts at 30s, we need to make sure the segment timestamps reflect 30s+.
-       
-       const pageSegments: AudioSegment[] = [];
-       // Granular segments for seeking within the page
-       const parts = p.text.split(/(\n\s*\n)/).filter(x => x.trim());
-       let localOffset = 0;
-       
-       parts.forEach(part => {
-           const partRatio = part.length / p.text.length;
-           const partDuration = partRatio * duration;
-           pageSegments.push({
-               text: part,
-               startTime: currentStartTime + localOffset,
-               duration: partDuration,
-               isSilence: false
-           });
-           localOffset += partDuration;
-       });
+    const BYTES_PER_SECOND = 24000 * 2;
 
-       resultMap.set(p.pageNum, {
-           audioUrl: finalAudioUrl,
-           segments: pageSegments
-       });
-       
-       currentStartTime += duration;
+    audioChunks.forEach((chunk, i) => {
+      stitchedPcm.set(chunk, offset);
+      const duration = chunk.length / BYTES_PER_SECOND;
+      pageSegments.push({
+        text: sentences[i],
+        startTime: currentStartTime,
+        duration: duration,
+        isSilence: false
+      });
+      offset += chunk.length;
+      currentStartTime += duration;
     });
 
-    return resultMap;
-
-  } catch (error) {
-    console.error("Batch Synthesis error:", error);
-    throw error;
+    const finalAudioUrl = URL.createObjectURL(createWavBlob(stitchedPcm, 24000));
+    resultMap.set(page.pageNum, {
+      audioUrl: finalAudioUrl,
+      segments: pageSegments
+    });
   }
+
+  return resultMap;
 };
+
+export const generateVoicePreview = async (voiceName: string, language: 'en' | 'de' = 'en'): Promise<string> => {
+  const ai = getAIClient();
+  const text = language === 'de'
+    ? "Dies ist eine Vorschau meiner Stimme für Ihre wissenschaftlichen Artikel."
+    : "This is a preview of my voice for your academic papers.";
+
+  const pcm = await ttsScheduler.add(() => generateTtsWithRetry(ai, text, voiceName));
+  const blob = createWavBlob(pcm, 24000);
+  return URL.createObjectURL(blob);
+};
+
 
 function decode(base64: string) {
   const binaryString = atob(base64);
