@@ -19,21 +19,23 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Handle API Key / .env
+echo [^+] Checking for API Key...
 set KEY_FOUND=0
-IF EXIST .env (
-    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1 && set KEY_FOUND=1
+
+:: Simple check outside of any IF blocks to avoid expansion issues
+if exist .env (
+    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1
+    if not errorlevel 1 set KEY_FOUND=1
 )
 
-IF !KEY_FOUND! equ 0 (
+if "%KEY_FOUND%"=="0" (
     echo.
-    echo [!] Gemini API Key not found in .env
+    echo [!] VITE_GEMINI_API_KEY not found in .env
     echo Please enter your Google Gemini API Key.
     echo (You can get one at: https://aistudio.google.com/app/apikey)
     echo.
-    set /p API_KEY="Enter API Key: "
-    
-    :: Overwrite or create .env with the key
-    echo VITE_GEMINI_API_KEY=!API_KEY! > .env
+    set /p NEW_KEY="Enter API Key: "
+    echo VITE_GEMINI_API_KEY=!NEW_KEY! > .env
     echo [^+] .env file updated successfully.
 )
 
