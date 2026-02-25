@@ -22,22 +22,25 @@ if %errorlevel% neq 0 (
 echo [^+] Checking for API Key...
 set KEY_FOUND=0
 
-:: Simple check outside of any IF blocks to avoid expansion issues
-if exist .env (
-    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1
-    if not errorlevel 1 set KEY_FOUND=1
-)
+if not exist .env goto :prompt_key
+findstr "VITE_GEMINI_API_KEY" .env >nul 2>&1
+if errorlevel 1 goto :prompt_key
+set KEY_FOUND=1
+goto :skip_prompt
 
-if "%KEY_FOUND%"=="0" (
-    echo.
-    echo [!] VITE_GEMINI_API_KEY not found in .env
-    echo Please enter your Google Gemini API Key.
-    echo (You can get one at: https://aistudio.google.com/app/apikey)
-    echo.
-    set /p NEW_KEY="Enter API Key: "
-    echo VITE_GEMINI_API_KEY=!NEW_KEY! > .env
-    echo [^+] .env file updated successfully.
-)
+:prompt_key
+echo.
+echo [!] VITE_GEMINI_API_KEY not found in .env
+echo Please enter your Google Gemini API Key.
+echo (You can get one at: https://aistudio.google.com/app/apikey)
+echo.
+set /p NEW_KEY="Enter API Key: "
+echo VITE_GEMINI_API_KEY=!NEW_KEY! > .env
+echo [^+] .env file updated successfully.
+set KEY_FOUND=1
+
+:skip_prompt
+echo [^+] API Key found.
 
 :: 3. Install dependencies if missing
 if not exist "node_modules" (
