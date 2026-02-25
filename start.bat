@@ -19,13 +19,12 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Handle API Key / .env
-set ENV_EXISTS=0
+set KEY_FOUND=0
 IF EXIST .env (
-    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1
-    if %errorlevel% equ 0 set ENV_EXISTS=1
+    findstr /C:"VITE_GEMINI_API_KEY" .env >nul 2>&1 && set KEY_FOUND=1
 )
 
-IF !ENV_EXISTS! equ 0 (
+IF !KEY_FOUND! equ 0 (
     echo.
     echo [!] Gemini API Key not found in .env
     echo Please enter your Google Gemini API Key.
@@ -33,7 +32,7 @@ IF !ENV_EXISTS! equ 0 (
     echo.
     set /p API_KEY="Enter API Key: "
     
-    :: Use >> to append or > to create/overwrite
+    :: Overwrite or create .env with the key
     echo VITE_GEMINI_API_KEY=!API_KEY! > .env
     echo [^+] .env file updated successfully.
 )
