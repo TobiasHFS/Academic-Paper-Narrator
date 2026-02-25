@@ -111,10 +111,10 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
   let attempt = 0;
   while (true) {
     try {
-      const res = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
+      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash-preview-tts" });
+      const result = await model.generateContent({
         contents: [{ parts: [{ text }] }],
-        config: {
+        generationConfig: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName } },
@@ -122,11 +122,13 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
         },
       });
 
-      const base64 = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const response = await result.response;
+      const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64) throw new Error("Empty audio response.");
       return decode(base64);
     } catch (e: any) {
       const isQuota = e.message?.includes('429') || e.status === 429;
+      // ... catch logic remains standard
       if (isQuota) {
         const waitTime = 10000 + (Math.random() * 5000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -155,10 +157,10 @@ export const extractScriptBatch = async (
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-1.5-flash',
-    contents: { parts },
-    config: {
-      systemInstruction: getSystemInstruction(language),
+    model: 'gemini-2.0-flash',
+    contents: [{ parts }],
+    systemInstruction: getSystemInstruction(language),
+    generationConfig: {
       maxOutputTokens: 8192
     }
   });
@@ -177,8 +179,11 @@ async function retryGenerate(ai: any, params: any, retries = 5): Promise<string>
   let attempt = 0;
   while (true) {
     try {
-      const response = await ai.models.generateContent(params);
-      return response.text || "";
+      const { model: modelName, ...rest } = params;
+      const model = ai.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(rest);
+      const response = await result.response;
+      return response.text() || "";
     } catch (error: any) {
       if (error.status === 429) {
         await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
