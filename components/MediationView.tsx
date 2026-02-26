@@ -77,7 +77,7 @@ export const MediationView: React.FC<MediationViewProps> = ({
     const activeCategories = categoryOrder.filter(cat => groupedPages[cat] && groupedPages[cat].length > 0);
 
     return (
-        <div className="w-full max-w-4xl mx-auto bg-white p-8 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="w-full max-w-5xl mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xl relative overflow-hidden flex flex-col h-[90vh]">
 
             {/* Top Right Abort Button */}
             <button
@@ -89,18 +89,18 @@ export const MediationView: React.FC<MediationViewProps> = ({
             </button>
 
             {/* Header */}
-            <div className="text-center max-w-2xl mx-auto space-y-3 mb-6 shrink-0">
-                <div className="inline-flex items-center justify-center p-3 bg-indigo-50 text-indigo-600 rounded-2xl mb-2">
-                    <FileDown className="w-6 h-6" />
+            <div className="text-center max-w-2xl mx-auto space-y-2 mb-4 shrink-0">
+                <div className="inline-flex items-center justify-center p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl mb-1">
+                    <FileDown className="w-5 h-5" />
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 font-serif">Select Pages to Narrate</h2>
-                <p className="text-slate-500">
+                <h2 className="text-xl font-bold text-slate-900 font-serif">Select Pages to Narrate</h2>
+                <p className="text-sm text-slate-500">
                     Our AI has automatically scanned and clustered the document. You can instantly toggle entire sections below, or expand them to fine-tune exactly what gets read!
                 </p>
             </div>
 
             {/* Stats Bar */}
-            <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-center justify-between text-sm mb-6 shrink-0">
+            <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex items-center justify-between text-sm mb-4 shrink-0">
                 <div className="flex items-center gap-2 text-indigo-700 font-medium">
                     <Info className="w-4 h-4" />
                     Skipping {totalCount - selectedCount} unnecessary pages
@@ -121,22 +121,22 @@ export const MediationView: React.FC<MediationViewProps> = ({
                     const colors = CATEGORY_COLORS[category];
 
                     return (
-                        <div key={category} className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                        <div key={category} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
                             {/* Category Header (Accordion Tile) */}
                             <div
                                 onClick={() => toggleExpand(category)}
-                                className={`flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
+                                className={`flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
                             >
                                 <div className="flex items-center gap-3">
                                     <button
                                         onClick={(e) => toggleCategory(category, e)}
-                                        className={`transition-colors ${allSelected ? 'text-indigo-600' : someSelected ? 'text-indigo-400' : 'text-slate-300 hover:text-indigo-400'}`}
+                                        className={`transition-colors flex-shrink-0 ${allSelected ? 'text-indigo-600' : someSelected ? 'text-indigo-400' : 'text-slate-300 hover:text-indigo-400'}`}
                                     >
-                                        {allSelected ? <CheckSquare className="w-6 h-6" /> : someSelected ? <CheckSquare className="w-6 h-6 opacity-60" /> : <Square className="w-6 h-6" />}
+                                        {allSelected ? <CheckSquare className="w-5 h-5" /> : someSelected ? <CheckSquare className="w-5 h-5 opacity-60" /> : <Square className="w-5 h-5" />}
                                     </button>
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-bold text-slate-800 text-lg">{CATEGORY_LABELS[category]}</h3>
+                                            <h3 className="font-bold text-slate-800 text-base">{CATEGORY_LABELS[category]}</h3>
                                             <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
                                                 {pages.length} Pages
                                             </span>
@@ -146,7 +146,7 @@ export const MediationView: React.FC<MediationViewProps> = ({
                                         </p>
                                     </div>
                                 </div>
-                                <div className="text-slate-400 p-2">
+                                <div className="text-slate-400 p-1">
                                     {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
                                 </div>
                             </div>
@@ -196,11 +196,12 @@ export const MediationView: React.FC<MediationViewProps> = ({
             </div>
 
             {/* Action Footer */}
-            <div className="pt-6 border-t border-slate-100 flex justify-end shrink-0">
+            <div className="pt-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+                <p className="text-xs text-slate-400 hidden sm:block">You can always abort or restart from the top navigation later.</p>
                 <button
                     onClick={onStartNarration}
                     disabled={selectedCount === 0}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-lg shadow-indigo-200"
+                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-2.5 rounded-xl font-bold transition-colors shadow-lg shadow-indigo-200 ml-auto"
                 >
                     <Play className="w-4 h-4" />
                     Start Narration ({selectedCount} pages)

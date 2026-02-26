@@ -336,7 +336,7 @@ export default function App() {
             key="mediation"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="min-h-screen py-12 px-6"
+            className="min-h-screen py-6 px-4 flex items-center justify-center"
           >
             <MediationView
               prescreenData={prescreenData}
