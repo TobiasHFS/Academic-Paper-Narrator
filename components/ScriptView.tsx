@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { FileText, Loader, Sparkles, AlertCircle } from 'lucide-react';
 import { NarratedPage } from '../types';
 
@@ -17,6 +17,19 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
     apiError,
     onWordDoubleClick
 }) => {
+    const activeSentenceRef = useRef<HTMLSpanElement>(null);
+
+    // Auto-scroll to active sentence
+    useEffect(() => {
+        if (activeSentenceRef.current) {
+            activeSentenceRef.current.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+            });
+        }
+    }, [currentTime]);
+
     const renderTextWithEvents = (text: string) => {
         if (processingMode === 'text' || !currentPageData?.segments) {
             return <span className="text-slate-700">{text}</span>;
@@ -38,7 +51,8 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
             return (
                 <span
                     key={sIndex}
-                    className={`transition-all duration-300 rounded px-1 -mx-1 py-0.5 ${isCurrentSentence ? 'bg-indigo-100 text-indigo-900 border-b-2 border-indigo-400 font-medium' : 'text-slate-700'}`}
+                    ref={isCurrentSentence ? activeSentenceRef : null}
+                    className={`transition-colors duration-500 rounded px-1 -mx-1 py-0.5 ${isCurrentSentence ? 'bg-indigo-100/80 text-indigo-950 font-medium shadow-[inset_0_-2px_0_theme(colors.indigo.400)]' : 'text-slate-700'}`}
                 >
                     {tokens.map((token, tIndex) => {
                         const wordIdx = startTokenIndex + tIndex;

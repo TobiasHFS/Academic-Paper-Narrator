@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Upload, FileText, AlertCircle, Headphones, Play, Loader2, Sparkles } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { VOICE_PROFILES, generateVoicePreview } from '../services/geminiService';
 import { getPreview, savePreview } from '../services/storageService';
 
@@ -177,7 +178,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
         {/* Voice Selection (Only in Audio Mode) */}
         {mode === 'audio' && (
-          <div className="flex flex-col items-center gap-3">
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex flex-col items-center gap-3"
+          >
             <div className="flex items-center gap-2">
               <Sparkles className="w-3 h-3 text-indigo-500" />
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Narrative Voice</span>
@@ -187,9 +193,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             <div className="w-full max-w-xl bg-slate-50 p-2 rounded-2xl border border-slate-100">
               <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 {VOICE_PROFILES.map((voice) => (
-                  <div
+                  <motion.div
                     key={voice.name}
-                    className={`flex-none w-48 relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${selectedVoice === voice.name ? 'border-indigo-500 bg-white ring-4 ring-indigo-50 shadow-md' : 'border-transparent bg-white/60 hover:border-slate-200 shadow-sm'}`}
+                    whileHover={{ y: -2, scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`flex-none w-48 relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${selectedVoice === voice.name ? 'border-indigo-500 bg-white ring-4 ring-indigo-50 shadow-md' : 'border-transparent bg-white/60 hover:border-slate-200 shadow-sm hover:shadow-md'}`}
                     onClick={() => onVoiceChange(voice.name)}
                   >
                     <div className="flex-1 mb-3">
@@ -199,23 +207,29 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handlePreviewVoice(voice.name); }}
-                      className={`flex items-center justify-center gap-2 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${previewingVoice === voice.name ? 'bg-indigo-600 text-white animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      className={`flex items-center justify-center gap-2 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${previewingVoice === voice.name ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                     >
                       {previewingVoice === voice.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                       {previewingVoice === voice.name ? 'Playing' : 'Preview'}
                     </button>
                     {selectedVoice === voice.name && (
-                      <div className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full"></div>
+                      <motion.div
+                        layoutId="activeVoiceGlow"
+                        className="absolute inset-0 border-2 border-indigo-500 rounded-xl"
+                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                      />
                     )}
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
       </div>
 
-      <div
+      <motion.div
+        whileHover={{ scale: disabled ? 1 : 1.01 }}
+        whileTap={{ scale: disabled ? 1 : 0.99 }}
         onClick={() => !disabled && inputRef.current?.click()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -223,8 +237,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         className={`
           relative border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer shadow-sm
           ${isDragging
-            ? 'border-indigo-500 bg-indigo-50 scale-[1.01]'
-            : 'border-slate-300 hover:border-slate-400 bg-white'
+            ? 'border-indigo-500 bg-indigo-50 scale-[1.02] shadow-indigo-100 shadow-lg'
+            : 'border-slate-300 hover:border-slate-400 bg-white hover:shadow-md'
           }
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
         `}
@@ -239,9 +253,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         />
 
         <div className="flex flex-col items-center gap-4">
-          <div className={`p-4 rounded-full ${isDragging ? 'bg-indigo-100' : 'bg-slate-100'}`}>
-            <Upload className={`w-8 h-8 ${isDragging ? 'text-indigo-600' : 'text-slate-500'}`} />
-          </div>
+          <motion.div
+            animate={isDragging ? { scale: [1, 1.2, 1], rotate: [0, -10, 10, 0] } : {}}
+            transition={{ repeat: isDragging ? Infinity : 0, duration: 1 }}
+            className={`p-4 rounded-full transition-colors ${isDragging ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}
+          >
+            <Upload className="w-8 h-8" />
+          </motion.div>
           <div>
             <h3 className="text-xl font-semibold text-slate-800 mb-1">
               {language === 'de' ? 'Laden Sie Ihre akademische Arbeit hoch' : 'Upload your academic paper'}
@@ -257,7 +275,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             </p>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {error && (
         <div className="mt-4 flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm border border-red-100">

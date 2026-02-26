@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { AudioController } from './components/AudioController';
 import { TopNavigation } from './components/TopNavigation';
@@ -6,6 +6,7 @@ import { ScriptView } from './components/ScriptView';
 import { PdfView } from './components/PdfView';
 import { loadPdf } from './services/pdfService';
 import { generateEpub } from './services/epubService';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { BookOpen } from 'lucide-react';
 import { useAudioPlayback } from './hooks/useAudioPlayback';
@@ -208,46 +209,128 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-32">
-      <TopNavigation
-        fileName={file.name}
-        isFullyComplete={isFullyComplete}
-        processingMode={processingMode}
-        progressPercent={progressPercent}
-        completedCount={completedCount}
-        totalPages={totalPages}
-        onImportSession={handleImportSession}
-        onExportSession={handleExportSession}
-        onDownloadFull={handleDownloadFull}
-      />
+    <div className="min-h-screen bg-slate-50 overflow-x-hidden">
+      <AnimatePresence mode="wait">
+        {!file ? (
+          <motion.div
+            key="landing"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+            className="min-h-screen flex flex-col items-center justify-center p-6 relative"
+          >
+            {/* Background decoration */}
+            <div className="absolute top-0 left-0 right-0 h-96 bg-gradient-to-b from-indigo-50 to-transparent -z-10" />
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="grid lg:grid-cols-2 gap-8 h-[calc(100vh-160px)]">
-          <ScriptView
-            currentPageData={currentPageData}
-            processingMode={processingMode}
-            currentTime={currentTime}
-            apiError={apiError}
-            onWordDoubleClick={handleWordDoubleClick}
-          />
-          <PdfView
-            currentPageData={currentPageData}
-            currentPlayingPage={currentPlayingPage}
-          />
-        </div>
-      </main>
+            <header className="mb-12 text-center">
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 text-white mb-6 shadow-xl shadow-indigo-200"
+              >
+                <BookOpen className="w-8 h-8" />
+              </motion.div>
+              <motion.h1
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="text-4xl font-bold text-slate-900 mb-4 tracking-tight font-serif"
+              >
+                Academic Narrator
+              </motion.h1>
+              <motion.p
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="text-lg text-slate-600 max-w-lg mx-auto leading-relaxed"
+              >
+                Transform dense academic PDFs into clear, intelligent audio narrations.
+              </motion.p>
+            </header>
 
-      <AudioController
-        playbackState={playbackState}
-        onPlayPause={togglePlayPause}
-        onNext={() => currentPlayingPage < totalPages && setCurrentPlayingPage(p => p + 1)}
-        onPrevious={() => currentPlayingPage > 1 && setCurrentPlayingPage(p => p - 1)}
-        currentPage={currentPlayingPage}
-        totalPages={totalPages}
-        speed={playbackSpeed}
-        onSpeedChange={setPlaybackSpeed}
-        mode={processingMode}
-      />
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="w-full max-w-2xl"
+            >
+              <FileUpload
+                onFileSelect={handleFileSelect}
+                language={language}
+                onLanguageChange={setLanguage}
+                mode={processingMode}
+                onModeChange={setProcessingMode}
+                selectedVoice={selectedVoice}
+                onVoiceChange={setSelectedVoice}
+              />
+            </motion.div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="app"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            className="flex flex-col min-h-screen pb-32"
+          >
+            <TopNavigation
+              fileName={file.name}
+              isFullyComplete={isFullyComplete}
+              processingMode={processingMode}
+              progressPercent={progressPercent}
+              completedCount={completedCount}
+              totalPages={totalPages}
+              onImportSession={handleImportSession}
+              onExportSession={handleExportSession}
+              onDownloadFull={handleDownloadFull}
+            />
+
+            <main className="max-w-7xl w-full mx-auto px-6 py-8 flex-1">
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.5 }}
+                className="grid md:grid-cols-2 gap-8 h-[calc(100vh-160px)] min-h-[500px]"
+              >
+                <ScriptView
+                  currentPageData={currentPageData}
+                  processingMode={processingMode}
+                  currentTime={currentTime}
+                  apiError={apiError}
+                  onWordDoubleClick={handleWordDoubleClick}
+                />
+                <PdfView
+                  currentPageData={currentPageData}
+                  currentPlayingPage={currentPlayingPage}
+                />
+              </motion.div>
+            </main>
+
+            <AnimatePresence>
+              <motion.div
+                initial={{ y: 100, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 100, opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              >
+                <AudioController
+                  playbackState={playbackState}
+                  onPlayPause={togglePlayPause}
+                  onNext={() => currentPlayingPage < totalPages && setCurrentPlayingPage(p => p + 1)}
+                  onPrevious={() => currentPlayingPage > 1 && setCurrentPlayingPage(p => p - 1)}
+                  currentPage={currentPlayingPage}
+                  totalPages={totalPages}
+                  speed={playbackSpeed}
+                  onSpeedChange={setPlaybackSpeed}
+                  mode={processingMode}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
