@@ -83,6 +83,14 @@ export function useAudioPlayback({
 
         const audio = audioRef.current;
         if (!audio) return;
+
+        if (totalPages === 0 || pages.length === 0) {
+            audio.pause();
+            audio.src = '';
+            setPlaybackState(PlaybackState.IDLE);
+            return;
+        }
+
         const page = pages[currentPlayingPage - 1];
 
         if (!page || ['analyzing', 'extracted', 'synthesizing', 'pending'].includes(page.status)) {

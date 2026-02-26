@@ -78,6 +78,13 @@ export default function App() {
     }
   };
 
+  const handleAbort = () => {
+    setFile(null);
+    pdfDocRef.current = null;
+    setCurrentPlayingPage(1);
+    setTotalPages(0);
+  };
+
   const handleDownloadFull = async () => {
     if (processingMode === 'text') {
       const readyPages = pages.filter(p => p.status === 'ready').sort((a, b) => a.pageNumber - b.pageNumber);
@@ -285,6 +292,7 @@ export default function App() {
               onImportSession={handleImportSession}
               onExportSession={handleExportSession}
               onDownloadFull={handleDownloadFull}
+              onAbort={handleAbort}
             />
 
             <main className="max-w-7xl w-full mx-auto px-6 py-8 flex-1">

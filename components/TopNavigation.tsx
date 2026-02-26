@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, FileType, CheckCircle2 } from 'lucide-react';
+import { BookOpen, FileType, CheckCircle2, X } from 'lucide-react';
 
 interface TopNavigationProps {
     fileName: string;
@@ -11,6 +11,7 @@ interface TopNavigationProps {
     onImportSession: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onExportSession: () => void;
     onDownloadFull: () => void;
+    onAbort: () => void;
 }
 
 export const TopNavigation: React.FC<TopNavigationProps> = ({
@@ -22,7 +23,8 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
     totalPages,
     onImportSession,
     onExportSession,
-    onDownloadFull
+    onDownloadFull,
+    onAbort
 }) => {
     return (
         <nav className="bg-white border-b border-slate-200 sticky top-0 z-40">
@@ -47,7 +49,15 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
                         {isFullyComplete ? (processingMode === 'text' ? <FileType className="w-4 h-4 text-indigo-600" /> : <CheckCircle2 className="w-4 h-4 text-indigo-600" />) : <div className="relative w-4 h-4"><svg className="w-full h-full -rotate-90" viewBox="0 0 36 36"><path className="text-slate-200" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" /><path className="text-indigo-600" strokeDasharray={`${progressPercent}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" /></svg></div>}
                         <span className="hidden sm:inline">{isFullyComplete ? (processingMode === 'text' ? "Download Cleaned EPUB" : "Download Full Audio") : `Processing ${completedCount}/${totalPages}`}</span>
                     </button>
-                    <div className="text-sm font-medium text-slate-600 truncate max-w-xs md:max-w-md">{fileName}</div>
+                    <div className="text-sm font-medium text-slate-600 truncate max-w-xs md:max-w-md hidden lg:block">{fileName}</div>
+                    <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                    <button
+                        onClick={onAbort}
+                        className="p-2 -mr-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                        title="Close paper and return to upload screen"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
                 </div>
             </div>
         </nav>
