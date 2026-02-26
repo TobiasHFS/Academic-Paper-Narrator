@@ -34,8 +34,8 @@ export const MediationView: React.FC<MediationViewProps> = ({
     onStartNarration,
     onAbort
 }) => {
-    // Keep 'main' category expanded by default
-    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ main: true });
+    // Keep all categories closed by default so users can see the overall structure clearly
+    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
     const togglePage = (pageNumber: number) => {
         const updated = prescreenData.pages.map(p =>
