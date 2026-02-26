@@ -5,9 +5,9 @@ declare global {
   }
 }
 
-export const loadPdf = async (file: File): Promise<any> => {
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
+export const loadPdf = async (file: File | Uint8Array): Promise<any> => {
+  const data = file instanceof Uint8Array ? file : await file.arrayBuffer();
+  const loadingTask = window.pdfjsLib.getDocument({ data });
   return loadingTask.promise;
 };
 
@@ -25,7 +25,7 @@ export const extractPageText = async (pdfDoc: any, pageNumber: number): Promise<
 
 export const renderPageToImage = async (pdfDoc: any, pageNumber: number): Promise<string> => {
   const page = await pdfDoc.getPage(pageNumber);
-  
+
   // Reduced scale from 1.5 to 1.2 to fix local lag issues.
   // 1.2 is still high enough for legible UI and OCR fallback if needed.
   const viewport = page.getViewport({ scale: 1.2 });

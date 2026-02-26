@@ -393,7 +393,10 @@ export default function App() {
                   const slicedFile = new File([slicedBlob], originalFile.name, { type: 'application/pdf' });
 
                   setFile(slicedFile);
-                  const pdfjsDoc = await loadPdf(slicedFile);
+
+                  // Pass the precise exactBuffer to pdfjsLib directly to avoid Blob memory pooling issues
+                  // that cause pdfjsLib to misread the byte size and think the old PDF metadata still exists.
+                  const pdfjsDoc = await loadPdf(new Uint8Array(exactBuffer));
                   pdfDocRef.current = pdfjsDoc;
 
                   setTotalPages(pdfjsDoc.numPages);
