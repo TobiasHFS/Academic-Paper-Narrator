@@ -27,3 +27,17 @@ export enum PlaybackState {
   PAUSED = 'PAUSED',
   BUFFERING = 'BUFFERING'
 }
+
+export type PageCategory = 'cover' | 'toc' | 'main' | 'references' | 'appendix' | 'blank';
+
+export interface PrescreenPage {
+  pageNumber: number;
+  category: PageCategory;
+  reasoning: string;
+  selected: boolean;
+}
+
+export interface PrescreenResult {
+  pages: PrescreenPage[];
+  totalSelected: number;
+}

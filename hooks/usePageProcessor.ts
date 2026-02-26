@@ -10,6 +10,7 @@ interface UsePageProcessorProps {
     processingMode: 'audio' | 'text';
     language: 'en' | 'de';
     selectedVoice?: string;
+    selectedPages?: number[];
 }
 
 const MAX_EXTRACTION_WORKERS = 3;
@@ -23,7 +24,8 @@ export function usePageProcessor({
     totalPages,
     processingMode,
     language,
-    selectedVoice = 'Fenrir'
+    selectedVoice = 'Fenrir',
+    selectedPages
 }: UsePageProcessorProps) {
     const [pages, setPages] = useState<NarratedPage[]>([]);
     const [activeExtractionWorkers, setActiveExtractionWorkers] = useState(0);
@@ -45,15 +47,21 @@ export function usePageProcessor({
     }, [pdfDoc]);
 
     // Initialize pages when totalPages changes
+    // Setup initial pages with optional filtering
     useEffect(() => {
         if (totalPages > 0) {
-            setPages(Array.from({ length: totalPages }, (_, i) => ({
-                pageNumber: i + 1,
-                originalText: '',
-                status: 'pending',
-            })));
+            setPages(Array.from({ length: totalPages }, (_, i) => {
+                const pageNum = i + 1;
+                // If selectedPages is provided and this page isn't in it, mark it as skipped/inactive immediately
+                const isSelected = selectedPages ? selectedPages.includes(pageNum) : true;
+                return {
+                    pageNumber: pageNum,
+                    originalText: '',
+                    status: isSelected ? 'pending' : 'error' // Mark unselected as error so they are skipped by playback logic
+                };
+            }));
         }
-    }, [totalPages]);
+    }, [totalPages, selectedPages]);
 
     const updatePageStatus = (pageNum: number, status: NarratedPage['status']) => {
         setPages(prev => {

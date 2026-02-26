@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { GoogleGenAI, Modality } from "@google/genai";
-import { AudioSegment } from "../types";
+import { AudioSegment, PrescreenResult, PageCategory, PrescreenPage } from "../types";
 
 // Initialize the client
 const getAIClient = () => new GoogleGenAI({ apiKey: (import.meta.env.VITE_GEMINI_API_KEY as string) });
@@ -163,6 +163,85 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string, si
   }
 }
 
+export const analyzeDocumentStructure = async (
+  pages: { pageNum: number; rawText: string }[],
+  signal?: AbortSignal
+): Promise<PrescreenResult> => {
+  const ai = getAIClient();
+  const parts: any[] = [];
+
+  // We only need the first 25 pages to determine structure usually, to save massive token costs, 
+  // but if it's short we send all. If it's long, we send front and back.
+  let pagesToSend = pages;
+  if (pages.length > 40) {
+    pagesToSend = [...pages.slice(0, 20), ...pages.slice(-20)];
+  }
+
+  pagesToSend.forEach((p) => {
+    // Truncate text per page to save tokens, we only need enough to classify
+    const truncated = p.rawText.substring(0, 800);
+    parts.push({ text: `Page ${p.pageNum}:\n${truncated}\n` });
+  });
+
+  const prompt = `
+You are an AI document structure analyzer. Read the provided text from the pages of this academic document.
+Your job is to categorize EACH provided page into one of these categories: 'cover', 'toc' (table of contents), 'main' (actual manuscript/body), 'references' (bibliography/citations), 'appendix', or 'blank' (empty or just a page number).
+
+Output a STRICT JSON ARRAY of objects, one for each page, matching this exact schema:
+[
+  { "pageNumber": 1, "category": "cover", "reasoning": "Contains only title and author names" },
+  { "pageNumber": 2, "category": "main", "reasoning": "Starts with abstract and introduction" }
+]
+
+CRITICAL: Return ONLY valid JSON, no markdown blocks, no other text.
+  `;
+
+  try {
+    const rawResult = await retryGenerate(ai, {
+      model: 'gemini-2.5-flash',
+      contents: [{ parts: [{ text: prompt }, ...parts] }],
+      config: {
+        responseMimeType: "application/json",
+      }
+    }, { signal });
+
+    const parsed = JSON.parse(rawResult) as { pageNumber: number, category: PageCategory, reasoning: string }[];
+
+    // Merge the AI results back into the total page list (since we might have skipped middle pages to save tokens, 
+    // infer middle pages as 'main')
+    const finalPages: PrescreenPage[] = pages.map(p => {
+      const aiGuess = parsed.find(aiP => aiP.pageNumber === p.pageNum);
+      const category = aiGuess?.category || 'main'; // Default to main if in the un-sent middle
+      const reasoning = aiGuess?.reasoning || 'Inferred as main body text';
+
+      // Auto-select only main text and appendices by default
+      const selected = category === 'main' || category === 'appendix';
+
+      return {
+        pageNumber: p.pageNum,
+        category,
+        reasoning,
+        selected
+      };
+    });
+
+    return {
+      pages: finalPages,
+      totalSelected: finalPages.filter(p => p.selected).length
+    };
+  } catch (e) {
+    console.error("Failed to analyze structure", e);
+    // Silent fallback: just select everything and call it main
+    const fallbackPages: PrescreenPage[] = pages.map(p => ({
+      pageNumber: p.pageNum,
+      category: 'main' as PageCategory,
+      reasoning: 'Fallback classification',
+      selected: true
+    }));
+    return { pages: fallbackPages, totalSelected: fallbackPages.length };
+  }
+};
+
 export const extractScriptBatch = async (
   pages: { pageNum: number; base64Image: string; rawText: string }[],
   language: 'en' | 'de' = 'en',
@@ -241,26 +320,94 @@ export const synthesizeBatch = async (
     // We treat the full page as one continuous audio segment
     const duration = pcmData.length / (24000 * 2);
 
-    // Split text into tokens (words and spaces)
-    const tokens = page.text.split(/(\s+)/).filter((t: string) => t.length > 0);
-    // Count total characters excluding whitespace to distribute duration proportionally
-    const totalChars = tokens.reduce((sum: number, token: string) => sum + (token.trim() ? token.length : 0), 0);
+    // --- ZERO-COST AUDIO SYNC: SILENCE DETECTION & HEURISTICS ---
+    // 1. Parse the text into sentences, roughly matching natural pauses
+    const rawSentences = page.text.match(/[^.!?\n]+[.!?\n]*(\s+|$)/g) || [page.text];
+    const sentences = rawSentences.filter(s => s.trim().length > 0);
 
-    const pageSegments: AudioSegment[] = [];
-    let currentTime = 0;
+    // 2. Scan the highly-clean TTS PCM audio mathematically for silence gaps
+    // 24000hz, 1 channel, 16-bit PCM.
+    const view = new DataView(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength);
+    const numSamples = pcmData.length / 2;
 
-    for (const token of tokens) {
-      const isSilence = !token.trim();
-      const tokenDuration = isSilence ? 0 : (token.length / totalChars) * duration;
+    // Silence config
+    const silenceThreshold = 50; // Amplitude threshold (0-32768)
+    const minSilenceMs = 250;
+    const minSilenceSamples = (24000 * minSilenceMs) / 1000;
 
-      pageSegments.push({
-        text: token,
-        startTime: currentTime,
-        duration: tokenDuration,
-        isSilence: isSilence
+    const pauseTimestamps: number[] = [];
+    let currentSilenceLen = 0;
+
+    for (let i = 0; i < numSamples; i++) {
+      // Read 16-bit PCM sample
+      const sample = Math.abs(view.getInt16(i * 2, true));
+      if (sample < silenceThreshold) {
+        currentSilenceLen++;
+      } else {
+        if (currentSilenceLen > minSilenceSamples) {
+          // Record the timestamp of the END of the silence gap (when the next sentence starts)
+          pauseTimestamps.push(i / 24000);
+        }
+        currentSilenceLen = 0;
+      }
+    }
+
+    // 3. Reconcile text sentences with perfectly physical audio timestamp boundaries
+    const sentenceBlocks: { text: string, startTime: number, duration: number }[] = [];
+    let currentAnchor = 0;
+
+    for (let i = 0; i < sentences.length; i++) {
+      const sText = sentences[i];
+      const nextAnchor = pauseTimestamps[i] || duration; // Fallback to end if we miscounted gaps
+
+      let sDuration = nextAnchor - currentAnchor;
+      if (sDuration <= 0 && i === sentences.length - 1) {
+        sDuration = duration - currentAnchor; // Final catch-all
+      }
+
+      sentenceBlocks.push({
+        text: sText,
+        startTime: currentAnchor,
+        duration: Math.max(sDuration, 0.1)
       });
 
-      currentTime += tokenDuration;
+      currentAnchor = nextAnchor;
+    }
+
+    // 4. Distribute words inside the anchored sentence using Punctuation Heuristics
+    const pageSegments: AudioSegment[] = [];
+
+    for (const block of sentenceBlocks) {
+      // Split sentence into words
+      const tokens = block.text.split(/(\s+)/).filter(t => t.length > 0);
+
+      // Calculate synthetic weights. Punctuation gets essentially 'more time' in the breakdown
+      const tokensWithWeight = tokens.map(t => {
+        const isSilence = !t.trim();
+        if (isSilence) return { text: t, weight: 0, isSilence };
+
+        let weight = t.length;
+        if (t.includes(',')) weight += 3; // roughly +3 chars worth of time
+        if (t.includes('.')) weight += 5;
+        if (t.includes(':') || t.includes(';')) weight += 4;
+
+        return { text: t, weight, isSilence };
+      });
+
+      const totalWeight = tokensWithWeight.reduce((sum, t) => sum + t.weight, 0);
+
+      // Map back to global page segment array
+      let intraTime = block.startTime;
+      for (const t of tokensWithWeight) {
+        const tokenDuration = t.isSilence ? 0 : (t.weight / totalWeight) * block.duration;
+        pageSegments.push({
+          text: t.text,
+          startTime: intraTime,
+          duration: tokenDuration,
+          isSilence: t.isSilence
+        });
+        intraTime += tokenDuration;
+      }
     }
 
     const finalAudioUrl = URL.createObjectURL(createWavBlob(pcmData, 24000));

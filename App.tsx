@@ -8,9 +8,12 @@ import { loadPdf } from './services/pdfService';
 import { generateEpub } from './services/epubService';
 import { motion, AnimatePresence } from 'framer-motion';
 
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Loader2 } from 'lucide-react';
 import { useAudioPlayback } from './hooks/useAudioPlayback';
 import { usePageProcessor } from './hooks/usePageProcessor';
+import { analyzeDocumentStructure } from './services/geminiService';
+import { PrescreenResult } from './types';
+import { MediationView } from './components/MediationView';
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -21,7 +24,13 @@ export default function App() {
   const [language, setLanguage] = useState<'en' | 'de'>('en');
   const [processingMode, setProcessingMode] = useState<'audio' | 'text'>('audio');
 
+  // Mediation State
+  const [prescreenData, setPrescreenData] = useState<PrescreenResult | null>(null);
+  const [isPrescreening, setIsPrescreening] = useState(false);
+  const [narrationStarted, setNarrationStarted] = useState(false);
+
   const pdfDocRef = useRef<any>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Persistence
   useEffect(() => {
@@ -40,12 +49,13 @@ export default function App() {
     pages,
     apiError
   } = usePageProcessor({
-    pdfDoc: pdfDocRef.current,
+    pdfDoc: narrationStarted ? pdfDocRef.current : null, // Only start processing when narration starts
     currentPlayingPage,
     totalPages,
     processingMode,
     language,
-    selectedVoice
+    selectedVoice,
+    selectedPages: prescreenData?.pages.filter(p => p.selected).map(p => p.pageNumber)
   });
 
   const {
@@ -65,22 +75,55 @@ export default function App() {
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
+    setIsPrescreening(true);
+    setPrescreenData(null);
+    setNarrationStarted(false);
+
+    abortControllerRef.current = new AbortController();
+
     try {
       const pdf = await loadPdf(selectedFile);
       pdfDocRef.current = pdf;
-      // Reset progress when new file is loaded
       setCurrentPlayingPage(1);
       setTotalPages(pdf.numPages);
-    } catch (err) {
-      console.error("Error loading PDF", err);
-      alert("Failed to load PDF.");
-      setFile(null);
+
+      // Pre-extract text for structure analysis
+      const extractedPages: { pageNum: number, rawText: string }[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        try {
+          // Use our existing extraction hook logic standalone if possible, 
+          // or just extract raw text directly for speed
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const rawText = textContent.items.map((item: any) => item.str).join(' ');
+          extractedPages.push({ pageNum: i, rawText });
+        } catch (e) {
+          console.warn("Failed to pre-extract page", i);
+        }
+      }
+
+      if (abortControllerRef.current.signal.aborted) return;
+
+      const analysis = await analyzeDocumentStructure(extractedPages, abortControllerRef.current.signal);
+      setPrescreenData(analysis);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error("Error loading PDF", err);
+        alert("Failed to load PDF or analyze structure.");
+        setFile(null);
+      }
+    } finally {
+      setIsPrescreening(false);
     }
   };
 
   const handleAbort = () => {
+    abortControllerRef.current?.abort();
     setFile(null);
     pdfDocRef.current = null;
+    setPrescreenData(null);
+    setIsPrescreening(false);
+    setNarrationStarted(false);
     setCurrentPlayingPage(1);
     setTotalPages(0);
   };
@@ -273,6 +316,33 @@ export default function App() {
                 onVoiceChange={setSelectedVoice}
               />
             </motion.div>
+          </motion.div>
+        ) : isPrescreening ? (
+          <motion.div
+            key="prescreening-loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center min-h-screen p-6"
+          >
+            <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mb-6" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2 font-serif">AI Analyzing Document</h2>
+            <p className="text-slate-500 max-w-sm text-center">
+              Scanning pages to identify formatting, tables of contents, and references so you only listen to what matters...
+            </p>
+          </motion.div>
+        ) : prescreenData && !narrationStarted ? (
+          <motion.div
+            key="mediation"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="min-h-screen py-12 px-6"
+          >
+            <MediationView
+              prescreenData={prescreenData}
+              onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
+              onStartNarration={() => setNarrationStarted(true)}
+            />
           </motion.div>
         ) : (
           <motion.div
