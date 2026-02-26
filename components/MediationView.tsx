@@ -124,13 +124,12 @@ export const MediationView: React.FC<MediationViewProps> = ({
                         <div key={category} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
                             {/* Category Header (Accordion Tile) */}
                             <div
-                                onClick={() => toggleExpand(category)}
+                                onClick={(e) => toggleCategory(category, e)}
                                 className={`flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
                             >
                                 <div className="flex items-center gap-3">
                                     <button
-                                        onClick={(e) => toggleCategory(category, e)}
-                                        className={`transition-colors flex-shrink-0 ${allSelected ? 'text-indigo-600' : someSelected ? 'text-indigo-400' : 'text-slate-300 hover:text-indigo-400'}`}
+                                        className={`transition-colors flex-shrink-0 pointer-events-none ${allSelected ? 'text-indigo-600' : someSelected ? 'text-indigo-400' : 'text-slate-300'}`}
                                     >
                                         {allSelected ? <CheckSquare className="w-5 h-5" /> : someSelected ? <CheckSquare className="w-5 h-5 opacity-60" /> : <Square className="w-5 h-5" />}
                                     </button>
@@ -146,9 +145,17 @@ export const MediationView: React.FC<MediationViewProps> = ({
                                         </p>
                                     </div>
                                 </div>
-                                <div className="text-slate-400 p-1">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleExpand(category);
+                                    }}
+                                    className="text-slate-400 p-2 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-all flex items-center gap-2 group"
+                                    title="View individual pages"
+                                >
+                                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity hidden sm:block">View Pages</span>
                                     {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                                </div>
+                                </button>
                             </div>
 
                             {/* Expanded Individual Pages Grid */}
