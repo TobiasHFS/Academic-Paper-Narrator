@@ -11,13 +11,28 @@ export const loadPdf = async (file: File | Uint8Array): Promise<any> => {
   return loadingTask.promise;
 };
 
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> => {
+  let timeoutHandle: any;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+  return Promise.race([
+    promise.finally(() => clearTimeout(timeoutHandle)),
+    timeoutPromise
+  ]);
+};
+
 /**
  * Extracts raw text items from a PDF page.
  * Used for the "Text-First" hybrid approach to save bandwidth/time.
  */
 export const extractPageText = async (pdfDoc: any, pageNumber: number): Promise<string> => {
   const page = await pdfDoc.getPage(pageNumber);
-  const textContent = await page.getTextContent();
+  const textContent = await withTimeout<any>(
+    page.getTextContent(),
+    10000,
+    `Timeout extracting text for page ${pageNumber}`
+  );
   // Join all text items with a space. This effectively flattens columns, 
   // so the LLM will need to reconstruct logical flow, which Gemini is good at.
   return textContent.items.map((item: any) => item.str).join(' ');
@@ -37,10 +52,14 @@ export const renderPageToImage = async (pdfDoc: any, pageNumber: number): Promis
   canvas.height = viewport.height;
   canvas.width = viewport.width;
 
-  await page.render({
-    canvasContext: context,
-    viewport: viewport,
-  }).promise;
+  await withTimeout(
+    page.render({
+      canvasContext: context,
+      viewport: viewport,
+    }).promise,
+    15000,
+    `Timeout rendering image for page ${pageNumber}`
+  );
 
   // Compress to JPEG with 0.7 quality
   return canvas.toDataURL('image/jpeg', 0.7);
