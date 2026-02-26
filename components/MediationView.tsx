@@ -150,11 +150,11 @@ export const MediationView: React.FC<MediationViewProps> = ({
                                         e.stopPropagation();
                                         toggleExpand(category);
                                     }}
-                                    className="text-slate-400 p-2 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-all flex items-center gap-2 group"
-                                    title="View individual pages"
+                                    className="text-slate-500 py-1.5 px-3 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all flex items-center gap-2 hover:-translate-y-0.5 hover:shadow-sm"
+                                    title={isExpanded ? "Hide individual pages" : "View individual pages"}
                                 >
-                                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity hidden sm:block">View Pages</span>
-                                    {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                                    <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:block">View Pages</span>
+                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                                 </button>
                             </div>
 
