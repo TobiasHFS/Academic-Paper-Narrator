@@ -28,6 +28,7 @@ export function usePageProcessor({
     const [pages, setPages] = useState<NarratedPage[]>([]);
     const [activeExtractionWorkers, setActiveExtractionWorkers] = useState(0);
     const [activeSynthesisWorkers, setActiveSynthesisWorkers] = useState(0);
+    const [apiError, setApiError] = useState<string | undefined>(undefined);
 
     // Initialize pages when totalPages changes
     useEffect(() => {
@@ -93,6 +94,9 @@ export function usePageProcessor({
             });
 
         } catch (error: any) {
+            if (error.status === 429 || error.message?.includes('429')) {
+                setApiError("Daily API Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
+            }
             pageNums.forEach(p => updatePageStatus(p, 'error'));
         }
     };
@@ -125,6 +129,9 @@ export function usePageProcessor({
 
         } catch (error: any) {
             console.error(`Synthesis Batch error`, error);
+            if (error.status === 429 || error.message?.includes('429')) {
+                setApiError("Daily TTS Audio Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
+            }
             pageNums.forEach(p => updatePageStatus(p, 'error'));
         }
     };
@@ -219,6 +226,7 @@ export function usePageProcessor({
         pages,
         setPages,
         activeExtractionWorkers,
-        activeSynthesisWorkers
+        activeSynthesisWorkers,
+        apiError
     };
 }
