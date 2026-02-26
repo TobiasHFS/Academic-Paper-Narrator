@@ -19,11 +19,12 @@ export const VOICE_PROFILES = [
 const getSystemInstruction = (language: 'en' | 'de') => `
 You are an expert academic narrator. Your goal is to transform complex academic PDF content into highly natural, engaging, and easy-to-follow audio scripts.
 
-**CRITICAL FOR NATURALNESS:**
-1. **Prosody & Intonation**: Do not produce flat, robotic speech. Use varied pitch and natural pauses.
-2. **Academic Flow**: When reading complex formulas or citations, summarize them naturally (e.g., "The researchers found..." instead of reading every parenthesis).
-3. **Emphasis**: Emphasize key findings and structural transitions (e.g., "Moving on to the results...").
-4. **Sentence Variance**: Use a mix of short and long sentences to maintain interest.
+**CRITICAL FOR PACING AND VOICE STABILITY (IMPORTANT):**
+1. **Hard Pacing Breaks**: You MUST break the text into very short, punchy paragraphs. Separate EVERY paragraph with double newlines (\\n\\n). This allows the text-to-speech engine to "take a breath" and prevents the voice from speeding up or pitching up over long texts. Do not write wall-of-text paragraphs.
+2. **Prosody & Intonation**: Do not produce flat, robotic speech. Use varied pitch and natural pauses.
+3. **Academic Flow**: When reading complex formulas or citations, summarize them naturally (e.g., "The researchers found..." instead of reading every parenthesis).
+4. **Emphasis**: Emphasize key findings and structural transitions (e.g., "Moving on to the results...").
+5. **Sentence Variance**: Use a mix of short and long sentences to maintain interest.
 
 ${language === 'de' ? `
 You are an expert academic translator and narrator. Your task is to produce a coherent, intelligent narrative script **IN GERMAN** from the provided academic paper pages.
@@ -111,10 +112,10 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
   let attempt = 0;
   while (true) {
     try {
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash-preview-tts" });
-      const result = await model.generateContent({
+      const res = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
-        generationConfig: {
+        config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName } },
@@ -122,8 +123,7 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
         },
       });
 
-      const response = await result.response;
-      const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const base64 = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64) throw new Error("Empty audio response.");
       return decode(base64);
     } catch (e: any) {
@@ -157,10 +157,10 @@ export const extractScriptBatch = async (
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-3-flash',
+    model: 'gemini-3-flash-preview',
     contents: [{ parts }],
-    systemInstruction: getSystemInstruction(language),
-    generationConfig: {
+    config: {
+      systemInstruction: getSystemInstruction(language),
       maxOutputTokens: 8192
     }
   });
@@ -179,11 +179,8 @@ async function retryGenerate(ai: any, params: any, retries = 5): Promise<string>
   let attempt = 0;
   while (true) {
     try {
-      const { model: modelName, ...rest } = params;
-      const model = ai.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(rest);
-      const response = await result.response;
-      return response.text() || "";
+      const response = await ai.models.generateContent(params);
+      return response.text || "";
     } catch (error: any) {
       if (error.status === 429) {
         await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
@@ -196,14 +193,6 @@ async function retryGenerate(ai: any, params: any, retries = 5): Promise<string>
   }
 }
 
-/**
- * Split text into sentences for precise timing.
- */
-function splitIntoSentences(text: string): string[] {
-  // Matches end of sentences but keeps the punctuation
-  return text.match(/[^.!?]+[.!?]*(\s+|$)/g) || [text];
-}
-
 export const synthesizeBatch = async (
   pages: { pageNum: number; text: string }[],
   voiceName: string = 'Fenrir'
@@ -211,42 +200,26 @@ export const synthesizeBatch = async (
   const ai = getAIClient();
   const resultMap = new Map<number, { audioUrl: string, segments: AudioSegment[] }>();
 
-  // Process each page as a potential "unit" but with sentence-level granular segments
-  // We process pages in series here but each page can have many sentences.
-  // To keep speed high, we still batch synthesis across pages if they are small.
-
   for (const page of pages) {
     if (!page.text.trim()) {
       resultMap.set(page.pageNum, { audioUrl: "", segments: [] });
       continue;
     }
 
-    const sentences = splitIntoSentences(page.text).filter(s => s.trim());
-    const audioChunks: Uint8Array[] = await Promise.all(
-      sentences.map(s => ttsScheduler.add(() => generateTtsWithRetry(ai, s, voiceName)))
-    );
+    // Process the entire page as a single TTS request
+    const pcmData = await ttsScheduler.add(() => generateTtsWithRetry(ai, page.text, voiceName));
 
-    const totalLength = audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
-    const stitchedPcm = new Uint8Array(totalLength);
-    let offset = 0;
-    const pageSegments: AudioSegment[] = [];
-    let currentStartTime = 0;
-    const BYTES_PER_SECOND = 24000 * 2;
+    // We treat the full page as one continuous audio segment
+    const duration = pcmData.length / (24000 * 2);
 
-    audioChunks.forEach((chunk, i) => {
-      stitchedPcm.set(chunk, offset);
-      const duration = chunk.length / BYTES_PER_SECOND;
-      pageSegments.push({
-        text: sentences[i],
-        startTime: currentStartTime,
-        duration: duration,
-        isSilence: false
-      });
-      offset += chunk.length;
-      currentStartTime += duration;
-    });
+    const pageSegments: AudioSegment[] = [{
+      text: page.text,
+      startTime: 0,
+      duration: duration,
+      isSilence: false
+    }];
 
-    const finalAudioUrl = URL.createObjectURL(createWavBlob(stitchedPcm, 24000));
+    const finalAudioUrl = URL.createObjectURL(createWavBlob(pcmData, 24000));
     resultMap.set(page.pageNum, {
       audioUrl: finalAudioUrl,
       segments: pageSegments
