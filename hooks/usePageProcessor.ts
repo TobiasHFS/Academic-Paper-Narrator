@@ -84,7 +84,12 @@ export function usePageProcessor({
                         });
                     } catch (e) { }
                 }
-                if (img) batchPayload.push({ pageNum, base64Image: img, rawText });
+                if (img) {
+                    batchPayload.push({ pageNum, base64Image: img, rawText });
+                } else {
+                    // Update this specific page to error so it doesn't hang in 'analyzing'
+                    updatePageStatus(pageNum, 'error');
+                }
             }));
 
             if (batchPayload.length === 0) return;
@@ -96,9 +101,11 @@ export function usePageProcessor({
 
             setPages(prev => {
                 const copy = [...prev];
-                resultsMap.forEach((text, pageNum) => {
+                // Ensure EVERY page that was sent to batch is updated, even if missing from resultsMap
+                pageNums.forEach(pageNum => {
                     const idx = pageNum - 1;
                     if (copy[idx]) {
+                        const text = resultsMap.get(pageNum) || ""; // Fallback to empty string if missing
                         const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
                         if (!text.trim()) {
                             copy[idx] = { ...copy[idx], originalText: text, status: 'ready' };

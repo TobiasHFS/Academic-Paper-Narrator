@@ -150,10 +150,10 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string, si
 
       const isQuota = e.message?.includes('429') || e.status === 429;
       if (isQuota) {
+        if (attempt >= 5) throw e; // Prevent infinite loop on hard quota limits
         const waitTime = 10000 + (Math.random() * 5000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         attempt++;
-        if (attempt > 100) throw e;
       } else {
         if (attempt >= 3) throw e;
         await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
@@ -257,7 +257,7 @@ export const extractScriptBatch = async (
   parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
 
   const rawResult = await retryGenerate(ai, {
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash',
     contents: [{ parts }],
     config: {
       systemInstruction: getSystemInstruction(language),
@@ -286,7 +286,9 @@ async function retryGenerate(ai: any, params: any, extraConfig?: { signal?: Abor
       if (error.name === "AbortError" || extraConfig?.signal?.aborted) throw error;
 
       if (error.status === 429) {
+        if (attempt >= retries * 2) throw error; // Allow more retries for 429s but don't loop forever
         await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
+        attempt++;
       } else {
         if (attempt >= retries) throw error;
         await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
