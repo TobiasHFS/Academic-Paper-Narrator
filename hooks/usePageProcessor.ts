@@ -30,6 +30,20 @@ export function usePageProcessor({
     const [activeSynthesisWorkers, setActiveSynthesisWorkers] = useState(0);
     const [apiError, setApiError] = useState<string | undefined>(undefined);
 
+    // Create an abort controller that lives alongside the component instance
+    const [abortController, setAbortController] = useState(() => new AbortController());
+
+    // Abort all requests when the component unmounts (e.g., when 'X' is clicked returning to upload screen)
+    useEffect(() => {
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        return () => {
+            console.log("Canceling all pending API/TTS requests for closed document");
+            controller.abort();
+        };
+    }, [pdfDoc]);
+
     // Initialize pages when totalPages changes
     useEffect(() => {
         if (totalPages > 0) {
@@ -75,7 +89,9 @@ export function usePageProcessor({
             if (batchPayload.length === 0) return;
 
             batchPayload.sort((a, b) => a.pageNum - b.pageNum);
-            const resultsMap = await extractScriptBatch(batchPayload, language);
+            const resultsMap = await extractScriptBatch(batchPayload, language, abortController.signal);
+
+            if (abortController.signal.aborted) return;
 
             setPages(prev => {
                 const copy = [...prev];
@@ -94,6 +110,9 @@ export function usePageProcessor({
             });
 
         } catch (error: any) {
+            if (error.name === "AbortError" || abortController.signal.aborted) {
+                return; // Silently fail on abort, do not show error banner
+            }
             if (error.status === 429 || error.message?.includes('429')) {
                 setApiError("Daily API Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
             }
@@ -109,7 +128,9 @@ export function usePageProcessor({
 
         try {
             const input = batchPages.map(p => ({ pageNum: p.pageNumber, text: p.originalText }));
-            const resultsMap = await synthesizeBatch(input, selectedVoice);
+            const resultsMap = await synthesizeBatch(input, selectedVoice, abortController.signal);
+
+            if (abortController.signal.aborted) return;
 
             setPages(prev => {
                 const copy = [...prev];
@@ -128,6 +149,9 @@ export function usePageProcessor({
             });
 
         } catch (error: any) {
+            if (error.name === "AbortError" || abortController.signal.aborted) {
+                return; // Silently exit without causing errors on unmount
+            }
             console.error(`Synthesis Batch error`, error);
             if (error.status === 429 || error.message?.includes('429')) {
                 setApiError("Daily TTS Audio Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");

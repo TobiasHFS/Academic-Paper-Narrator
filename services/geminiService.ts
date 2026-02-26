@@ -65,42 +65,60 @@ You are an expert academic narrator. Your task is to produce a coherent, intelli
 
 // ... RequestScheduler implementation (unchanged)
 class RequestScheduler {
-  private queue: Array<() => Promise<void>> = [];
+  private queue: Array<{ task: () => Promise<any>; signal?: AbortSignal; resolve: (val: any) => void; reject: (err: any) => void }> = [];
   private activeCount = 0;
   private maxConcurrent = 3;
   private minInterval = 300;
   private lastRequestTime = 0;
 
-  add<T>(task: () => Promise<T>): Promise<T> {
+  add<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.queue.push(async () => {
-        try {
-          const result = await task();
-          resolve(result);
-        } catch (e) {
-          reject(e);
-        }
-      });
+      if (signal?.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      this.queue.push({ task, signal, resolve, reject });
       this.process();
     });
   }
 
   private process() {
     if (this.activeCount >= this.maxConcurrent || this.queue.length === 0) return;
+
+    // Remove any aborted requests from the queue before processing
+    while (this.queue.length > 0 && this.queue[0].signal?.aborted) {
+      const abortedItem = this.queue.shift();
+      abortedItem!.reject(new DOMException("Aborted", "AbortError"));
+    }
+
+    if (this.queue.length === 0) return;
+
     const now = Date.now();
     const timeSinceLast = now - this.lastRequestTime;
     if (timeSinceLast < this.minInterval) {
       setTimeout(() => this.process(), this.minInterval - timeSinceLast);
       return;
     }
-    const task = this.queue.shift();
-    if (task) {
+
+    const item = this.queue.shift();
+    if (item) {
       this.activeCount++;
       this.lastRequestTime = Date.now();
-      task().finally(() => {
+
+      if (item.signal?.aborted) {
         this.activeCount--;
+        item.reject(new DOMException("Aborted", "AbortError"));
         this.process();
-      });
+        return;
+      }
+
+      item.task()
+        .then(item.resolve)
+        .catch(item.reject)
+        .finally(() => {
+          this.activeCount--;
+          this.process();
+        });
       this.process();
     }
   }
@@ -108,9 +126,10 @@ class RequestScheduler {
 
 const ttsScheduler = new RequestScheduler();
 
-async function generateTtsWithRetry(ai: any, text: string, voiceName: string): Promise<Uint8Array> {
+async function generateTtsWithRetry(ai: any, text: string, voiceName: string, signal?: AbortSignal): Promise<Uint8Array> {
   let attempt = 0;
   while (true) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
       const res = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
@@ -121,14 +140,15 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
             voiceConfig: { prebuiltVoiceConfig: { voiceName } },
           },
         },
-      });
+      }, { signal });
 
       const base64 = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64) throw new Error("Empty audio response.");
       return decode(base64);
     } catch (e: any) {
+      if (e.name === "AbortError" || signal?.aborted) throw e;
+
       const isQuota = e.message?.includes('429') || e.status === 429;
-      // ... catch logic remains standard
       if (isQuota) {
         const waitTime = 10000 + (Math.random() * 5000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -145,7 +165,8 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string): P
 
 export const extractScriptBatch = async (
   pages: { pageNum: number; base64Image: string; rawText: string }[],
-  language: 'en' | 'de' = 'en'
+  language: 'en' | 'de' = 'en',
+  signal?: AbortSignal
 ): Promise<Map<number, string>> => {
   const ai = getAIClient();
   const parts: any[] = [];
@@ -163,7 +184,7 @@ export const extractScriptBatch = async (
       systemInstruction: getSystemInstruction(language),
       maxOutputTokens: 8192
     }
-  });
+  }, { signal });
 
   const resultMap = new Map<number, string>();
   const splitResults = rawResult.split('---PAGE_BREAK---');
@@ -175,13 +196,16 @@ export const extractScriptBatch = async (
   return resultMap;
 };
 
-async function retryGenerate(ai: any, params: any, retries = 5): Promise<string> {
+async function retryGenerate(ai: any, params: any, extraConfig?: { signal?: AbortSignal }, retries = 5): Promise<string> {
   let attempt = 0;
   while (true) {
+    if (extraConfig?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
-      const response = await ai.models.generateContent(params);
+      const response = await ai.models.generateContent(params, extraConfig);
       return response.text || "";
     } catch (error: any) {
+      if (error.name === "AbortError" || extraConfig?.signal?.aborted) throw error;
+
       if (error.status === 429) {
         await new Promise(resolve => setTimeout(resolve, 15000 + (Math.random() * 5000)));
       } else {
@@ -195,7 +219,8 @@ async function retryGenerate(ai: any, params: any, retries = 5): Promise<string>
 
 export const synthesizeBatch = async (
   pages: { pageNum: number; text: string }[],
-  voiceName: string = 'Fenrir'
+  voiceName: string = 'Fenrir',
+  signal?: AbortSignal
 ): Promise<Map<number, { audioUrl: string, segments: AudioSegment[] }>> => {
   const ai = getAIClient();
   const resultMap = new Map<number, { audioUrl: string, segments: AudioSegment[] }>();
@@ -206,8 +231,12 @@ export const synthesizeBatch = async (
       continue;
     }
 
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
     // Process the entire page as a single TTS request
-    const pcmData = await ttsScheduler.add(() => generateTtsWithRetry(ai, page.text, voiceName));
+    const pcmData = await ttsScheduler.add(() => generateTtsWithRetry(ai, page.text, voiceName, signal), signal);
+
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     // We treat the full page as one continuous audio segment
     const duration = pcmData.length / (24000 * 2);
