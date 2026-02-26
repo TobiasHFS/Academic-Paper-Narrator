@@ -159,20 +159,11 @@ export function useAudioPlayback({
         const page = pages[currentPlayingPage - 1];
         if (!page || !page.segments) return;
 
-        // With sentence-level segmentation, we just find which segment contains this word
-        let tokenCounter = 0;
         let targetSeekTime = 0;
-
-        for (const segment of page.segments) {
-            const segmentTokens = segment.text.split(/(\s+)/).filter(x => x.length > 0);
-            // wordIndex is based on tokens across the entire page
-            if (wordIndex < tokenCounter + segmentTokens.length) {
-                // Approximate position within sentence if needed, 
-                // but usually sentence-start is enough for great UX.
-                targetSeekTime = segment.startTime;
-                break;
-            }
-            tokenCounter += segmentTokens.length;
+        if (page.segments.length > 1) {
+            targetSeekTime = page.segments[wordIndex]?.startTime || 0;
+        } else {
+            targetSeekTime = page.segments[0]?.startTime || 0;
         }
 
         audio.currentTime = Math.max(0, targetSeekTime - SEEK_SAFETY_BUFFER_SECONDS);

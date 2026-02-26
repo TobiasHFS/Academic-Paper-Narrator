@@ -17,57 +17,56 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
     apiError,
     onWordDoubleClick
 }) => {
-    const activeSentenceRef = useRef<HTMLSpanElement>(null);
+    const activeWordRef = useRef<HTMLSpanElement>(null);
+    const activeIndexRef = useRef<number>(-1);
 
-    // Auto-scroll to active sentence
+    // Auto-scroll to active word
     useEffect(() => {
-        if (activeSentenceRef.current) {
-            activeSentenceRef.current.scrollIntoView({
+        if (!currentPageData?.segments || processingMode === 'text') return;
+
+        // Find current active index
+        const activeIndex = currentPageData.segments.findIndex(s =>
+            currentTime >= s.startTime && currentTime < (s.startTime + s.duration) && !s.isSilence
+        );
+
+        // Only scroll if we exist, and index changed
+        if (activeIndex !== -1 && activeWordRef.current && activeIndex !== activeIndexRef.current) {
+            activeIndexRef.current = activeIndex;
+
+            activeWordRef.current.scrollIntoView({
                 behavior: 'smooth',
-                block: 'center',
+                block: 'nearest',
                 inline: 'nearest'
             });
         }
-    }, [currentTime]);
+    }, [currentTime, currentPageData, processingMode]);
 
     const renderTextWithEvents = (text: string) => {
         if (processingMode === 'text' || !currentPageData?.segments) {
             return <span className="text-slate-700">{text}</span>;
         }
 
-        const sentences = text.match(/[^.!?]+[.!?]*(\s+|$)/g) || [text];
-        let tokenCounter = 0;
+        // Fallback for old sessions that only have 1 segment per page
+        if (currentPageData.segments.length <= 1) {
+            return <span className="text-slate-700">{text}</span>;
+        }
 
-        return sentences.map((sentence, sIndex) => {
-            const segment = currentPageData.segments?.[sIndex];
-            const isCurrentSentence = segment &&
-                currentTime >= segment.startTime &&
-                currentTime < (segment.startTime + segment.duration);
+        return currentPageData.segments.map((segment, index) => {
+            const isActive = currentTime >= segment.startTime && currentTime < (segment.startTime + segment.duration);
+            const isWhitespace = segment.isSilence || !segment.text.trim();
 
-            const tokens = sentence.split(/(\s+)/);
-            const startTokenIndex = tokenCounter;
-            tokenCounter += tokens.length;
+            if (isWhitespace) {
+                return <span key={index}>{segment.text}</span>;
+            }
 
             return (
                 <span
-                    key={sIndex}
-                    ref={isCurrentSentence ? activeSentenceRef : null}
-                    className={`transition-colors duration-500 rounded px-1 -mx-1 py-0.5 ${isCurrentSentence ? 'bg-indigo-100/80 text-indigo-950 font-medium shadow-[inset_0_-2px_0_theme(colors.indigo.400)]' : 'text-slate-700'}`}
+                    key={index}
+                    ref={isActive ? activeWordRef : null}
+                    onDoubleClick={() => onWordDoubleClick(index)}
+                    className={`cursor-pointer hover:underline decoration-indigo-300 underline-offset-4 transition-colors duration-200 rounded px-0.5 mx-0 -my-0.5 ${isActive ? 'bg-indigo-100/80 text-indigo-950 font-medium shadow-[inset_0_-2px_0_theme(colors.indigo.400)]' : 'text-slate-700'}`}
                 >
-                    {tokens.map((token, tIndex) => {
-                        const wordIdx = startTokenIndex + tIndex;
-                        return !token.trim() ? (
-                            <span key={tIndex}>{token}</span>
-                        ) : (
-                            <span
-                                key={tIndex}
-                                onDoubleClick={() => onWordDoubleClick(wordIdx)}
-                                className="cursor-pointer hover:underline decoration-indigo-300 underline-offset-4"
-                            >
-                                {token}
-                            </span>
-                        );
-                    })}
+                    {segment.text}
                 </span>
             );
         });

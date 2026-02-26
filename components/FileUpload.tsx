@@ -189,9 +189,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Narrative Voice</span>
             </div>
 
-            {/* Scrollable Gallery */}
             <div className="w-full max-w-xl bg-slate-50 p-2 rounded-2xl border border-slate-100">
-              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <div className="flex gap-3 overflow-x-auto py-3 -my-3 pb-4 -mb-2 scrollbar-hide px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 {VOICE_PROFILES.map((voice) => (
                   <motion.div
                     key={voice.name}
@@ -215,7 +214,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     {selectedVoice === voice.name && (
                       <motion.div
                         layoutId="activeVoiceGlow"
-                        className="absolute inset-0 border-2 border-indigo-500 rounded-xl"
+                        className="absolute inset-0 border-2 border-indigo-500 rounded-xl pointer-events-none"
                         transition={{ type: "spring", stiffness: 300, damping: 30 }}
                       />
                     )}

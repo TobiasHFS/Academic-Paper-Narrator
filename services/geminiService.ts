@@ -241,12 +241,27 @@ export const synthesizeBatch = async (
     // We treat the full page as one continuous audio segment
     const duration = pcmData.length / (24000 * 2);
 
-    const pageSegments: AudioSegment[] = [{
-      text: page.text,
-      startTime: 0,
-      duration: duration,
-      isSilence: false
-    }];
+    // Split text into tokens (words and spaces)
+    const tokens = page.text.split(/(\s+)/).filter((t: string) => t.length > 0);
+    // Count total characters excluding whitespace to distribute duration proportionally
+    const totalChars = tokens.reduce((sum: number, token: string) => sum + (token.trim() ? token.length : 0), 0);
+
+    const pageSegments: AudioSegment[] = [];
+    let currentTime = 0;
+
+    for (const token of tokens) {
+      const isSilence = !token.trim();
+      const tokenDuration = isSilence ? 0 : (token.length / totalChars) * duration;
+
+      pageSegments.push({
+        text: token,
+        startTime: currentTime,
+        duration: tokenDuration,
+        isSilence: isSilence
+      });
+
+      currentTime += tokenDuration;
+    }
 
     const finalAudioUrl = URL.createObjectURL(createWavBlob(pcmData, 24000));
     resultMap.set(page.pageNum, {
