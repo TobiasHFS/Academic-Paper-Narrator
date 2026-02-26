@@ -75,7 +75,8 @@ export default function App() {
     playbackSpeed,
     processingMode,
     totalPages,
-    title: file?.name
+    title: file?.name,
+    selectedPages: selectedPagesArray
   });
 
   const handleFileSelect = async (selectedFile: File) => {
@@ -348,7 +349,11 @@ export default function App() {
             <MediationView
               prescreenData={prescreenData}
               onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
-              onStartNarration={() => setNarrationStarted(true)}
+              onStartNarration={() => {
+                const firstSelected = selectedPagesArray?.[0] || 1;
+                setCurrentPlayingPage(firstSelected);
+                setNarrationStarted(true);
+              }}
               onAbort={handleAbort}
             />
           </motion.div>
@@ -404,8 +409,22 @@ export default function App() {
                 <AudioController
                   playbackState={playbackState}
                   onPlayPause={togglePlayPause}
-                  onNext={() => currentPlayingPage < totalPages && setCurrentPlayingPage(p => p + 1)}
-                  onPrevious={() => currentPlayingPage > 1 && setCurrentPlayingPage(p => p - 1)}
+                  onNext={() => {
+                    if (selectedPagesArray) {
+                      const idx = selectedPagesArray.indexOf(currentPlayingPage);
+                      if (idx !== -1 && idx < selectedPagesArray.length - 1) setCurrentPlayingPage(selectedPagesArray[idx + 1]);
+                    } else if (currentPlayingPage < totalPages) {
+                      setCurrentPlayingPage(p => p + 1);
+                    }
+                  }}
+                  onPrevious={() => {
+                    if (selectedPagesArray) {
+                      const idx = selectedPagesArray.indexOf(currentPlayingPage);
+                      if (idx > 0) setCurrentPlayingPage(selectedPagesArray[idx - 1]);
+                    } else if (currentPlayingPage > 1) {
+                      setCurrentPlayingPage(p => p - 1);
+                    }
+                  }}
                   currentPage={currentPlayingPage}
                   totalPages={totalPages}
                   activePageIndex={activePageIndex}
