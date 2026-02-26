@@ -342,6 +342,7 @@ export default function App() {
               prescreenData={prescreenData}
               onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
               onStartNarration={() => setNarrationStarted(true)}
+              onAbort={handleAbort}
             />
           </motion.div>
         ) : (
