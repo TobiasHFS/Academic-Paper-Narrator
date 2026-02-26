@@ -383,7 +383,13 @@ export default function App() {
                   }
 
                   const pdfBytes = await newPdf.save();
-                  const slicedBlob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+                  // Extract only the precise byte window of the Uint8Array into a new ArrayBuffer
+                  // to prevent copying the entire underlying memory pool (which could contain the old PDF)
+                  const exactBuffer = pdfBytes.buffer.slice(
+                    pdfBytes.byteOffset,
+                    pdfBytes.byteOffset + pdfBytes.byteLength
+                  ) as ArrayBuffer;
+                  const slicedBlob = new Blob([exactBuffer], { type: 'application/pdf' });
                   const slicedFile = new File([slicedBlob], originalFile.name, { type: 'application/pdf' });
 
                   setFile(slicedFile);
