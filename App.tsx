@@ -7,6 +7,7 @@ import { PdfView } from './components/PdfView';
 import { loadPdf } from './services/pdfService';
 import { generateEpub } from './services/epubService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PDFDocument } from 'pdf-lib';
 
 import { BookOpen, Loader2 } from 'lucide-react';
 import { useAudioPlayback } from './hooks/useAudioPlayback';
@@ -27,7 +28,9 @@ export default function App() {
   // Mediation State
   const [prescreenData, setPrescreenData] = useState<PrescreenResult | null>(null);
   const [isPrescreening, setIsPrescreening] = useState(false);
+  const [isSlicing, setIsSlicing] = useState(false);
   const [narrationStarted, setNarrationStarted] = useState(false);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
 
   const pdfDocRef = useRef<any>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -59,8 +62,7 @@ export default function App() {
     totalPages,
     processingMode,
     language,
-    selectedVoice,
-    selectedPages: selectedPagesArray
+    selectedVoice
   });
 
   const {
@@ -75,11 +77,11 @@ export default function App() {
     playbackSpeed,
     processingMode,
     totalPages,
-    title: file?.name,
-    selectedPages: selectedPagesArray
+    title: file?.name
   });
 
   const handleFileSelect = async (selectedFile: File) => {
+    setOriginalFile(selectedFile);
     setFile(selectedFile);
     setIsPrescreening(true);
     setPrescreenData(null);
@@ -125,10 +127,12 @@ export default function App() {
 
   const handleAbort = () => {
     abortControllerRef.current?.abort();
+    setOriginalFile(null);
     setFile(null);
     pdfDocRef.current = null;
     setPrescreenData(null);
     setIsPrescreening(false);
+    setIsSlicing(false);
     setNarrationStarted(false);
     setCurrentPlayingPage(1);
     setTotalPages(0);
@@ -202,12 +206,10 @@ export default function App() {
     } catch (e) { console.error(e); alert("Download failed."); }
   };
 
-  const targetTotal = narrationStarted && selectedPagesArray ? selectedPagesArray.length : totalPages;
   const completedCount = pages.filter(p => p.status === 'ready').length;
-  const progressPercent = targetTotal > 0 ? Math.round((completedCount / targetTotal) * 100) : 0;
-  const isFullyComplete = completedCount === targetTotal && targetTotal > 0;
+  const progressPercent = totalPages > 0 ? Math.round((completedCount / totalPages) * 100) : 0;
+  const isFullyComplete = completedCount === totalPages && totalPages > 0;
   const currentPageData = pages[currentPlayingPage - 1];
-  const activePageIndex = selectedPagesArray ? selectedPagesArray.indexOf(currentPlayingPage) + 1 : currentPlayingPage;
 
   if (!file) return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
@@ -339,6 +341,20 @@ export default function App() {
               Scanning pages to identify formatting, tables of contents, and references so you only listen to what matters...
             </p>
           </motion.div>
+        ) : isSlicing ? (
+          <motion.div
+            key="slicing-loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center min-h-screen p-6"
+          >
+            <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mb-6" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2 font-serif">Slicing Document</h2>
+            <p className="text-slate-500 max-w-sm text-center">
+              Physically extracting your selected pages to generate a clean narration file...
+            </p>
+          </motion.div>
         ) : prescreenData && !narrationStarted ? (
           <motion.div
             key="mediation"
@@ -349,10 +365,41 @@ export default function App() {
             <MediationView
               prescreenData={prescreenData}
               onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
-              onStartNarration={() => {
-                const firstSelected = selectedPagesArray?.[0] || 1;
-                setCurrentPlayingPage(firstSelected);
-                setNarrationStarted(true);
+              onStartNarration={async () => {
+                if (!originalFile || !selectedPagesArray || selectedPagesArray.length === 0) return;
+
+                setIsSlicing(true);
+                try {
+                  const arrayBuffer = await originalFile.arrayBuffer();
+                  const pdfDoc = await PDFDocument.load(arrayBuffer);
+                  const newPdf = await PDFDocument.create();
+
+                  // pdf-lib uses 0-indexed page numbers
+                  const pageIndices = selectedPagesArray.map(p => p - 1);
+                  const copiedPages = await newPdf.copyPages(pdfDoc, pageIndices);
+
+                  for (const page of copiedPages) {
+                    newPdf.addPage(page);
+                  }
+
+                  const pdfBytes = await newPdf.save();
+                  const slicedBlob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+                  const slicedFile = new File([slicedBlob], originalFile.name, { type: 'application/pdf' });
+
+                  setFile(slicedFile);
+                  const pdfjsDoc = await loadPdf(slicedFile);
+                  pdfDocRef.current = pdfjsDoc;
+
+                  setTotalPages(pdfjsDoc.numPages);
+                  setCurrentPlayingPage(1);
+                  setNarrationStarted(true);
+                } catch (e) {
+                  console.error("Failed to slice PDF", e);
+                  alert("Failed to extract the selected pages. Resuming with full document.");
+                  setNarrationStarted(true);
+                } finally {
+                  setIsSlicing(false);
+                }
               }}
               onAbort={handleAbort}
             />
@@ -371,7 +418,7 @@ export default function App() {
               processingMode={processingMode}
               progressPercent={progressPercent}
               completedCount={completedCount}
-              totalPages={targetTotal}
+              totalPages={totalPages}
               onImportSession={handleImportSession}
               onExportSession={handleExportSession}
               onDownloadFull={handleDownloadFull}
@@ -409,26 +456,10 @@ export default function App() {
                 <AudioController
                   playbackState={playbackState}
                   onPlayPause={togglePlayPause}
-                  onNext={() => {
-                    if (selectedPagesArray) {
-                      const idx = selectedPagesArray.indexOf(currentPlayingPage);
-                      if (idx !== -1 && idx < selectedPagesArray.length - 1) setCurrentPlayingPage(selectedPagesArray[idx + 1]);
-                    } else if (currentPlayingPage < totalPages) {
-                      setCurrentPlayingPage(p => p + 1);
-                    }
-                  }}
-                  onPrevious={() => {
-                    if (selectedPagesArray) {
-                      const idx = selectedPagesArray.indexOf(currentPlayingPage);
-                      if (idx > 0) setCurrentPlayingPage(selectedPagesArray[idx - 1]);
-                    } else if (currentPlayingPage > 1) {
-                      setCurrentPlayingPage(p => p - 1);
-                    }
-                  }}
+                  onNext={() => currentPlayingPage < totalPages && setCurrentPlayingPage(p => p + 1)}
+                  onPrevious={() => currentPlayingPage > 1 && setCurrentPlayingPage(p => p - 1)}
                   currentPage={currentPlayingPage}
                   totalPages={totalPages}
-                  activePageIndex={activePageIndex}
-                  activeTotalPages={targetTotal}
                   speed={playbackSpeed}
                   onSpeedChange={setPlaybackSpeed}
                   mode={processingMode}

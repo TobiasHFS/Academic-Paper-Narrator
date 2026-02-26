@@ -13,8 +13,6 @@ interface AudioControllerProps {
   speed: number;
   onSpeedChange: (speed: number) => void;
   mode: 'audio' | 'text';
-  activePageIndex?: number;
-  activeTotalPages?: number;
 }
 
 export const AudioController: React.FC<AudioControllerProps> = ({
@@ -26,9 +24,7 @@ export const AudioController: React.FC<AudioControllerProps> = ({
   totalPages,
   speed,
   onSpeedChange,
-  mode,
-  activePageIndex,
-  activeTotalPages
+  mode
 }) => {
   const [visuals, setVisuals] = useState<number[]>(new Array(12).fill(10));
 
@@ -58,12 +54,7 @@ export const AudioController: React.FC<AudioControllerProps> = ({
           </div>
           <div>
             <p className="text-sm font-medium text-slate-900">{mode === 'audio' ? 'Narration Active' : 'Text Review'}</p>
-            <p className="text-xs text-slate-500">
-              {activeTotalPages && activeTotalPages < totalPages ?
-                `Page ${currentPage} (${activePageIndex || '-'} of ${activeTotalPages})` :
-                `Page ${currentPage} of ${totalPages}`
-              }
-            </p>
+            <p className="text-xs text-slate-500">Page {currentPage} of {totalPages}</p>
           </div>
         </div>
 

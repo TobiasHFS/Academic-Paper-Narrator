@@ -9,7 +9,6 @@ interface UseAudioPlaybackProps {
     processingMode: 'audio' | 'text';
     totalPages: number;
     title?: string;
-    selectedPages?: number[];
 }
 
 const SEEK_SAFETY_BUFFER_SECONDS = 0.05;
@@ -21,8 +20,7 @@ export function useAudioPlayback({
     playbackSpeed,
     processingMode,
     totalPages,
-    title = "Academic Paper",
-    selectedPages
+    title = "Academic Paper"
 }: UseAudioPlaybackProps) {
     const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.IDLE);
     const [currentTime, setCurrentTime] = useState(0);
@@ -67,23 +65,13 @@ export function useAudioPlayback({
             navigator.mediaSession.setActionHandler('play', () => setPlaybackState(PlaybackState.PLAYING));
             navigator.mediaSession.setActionHandler('pause', () => setPlaybackState(PlaybackState.PAUSED));
             navigator.mediaSession.setActionHandler('previoustrack', () => {
-                if (selectedPages) {
-                    const idx = selectedPages.indexOf(currentPlayingPage);
-                    if (idx > 0) setCurrentPlayingPage(selectedPages[idx - 1]);
-                } else if (currentPlayingPage > 1) {
-                    setCurrentPlayingPage(p => p - 1);
-                }
+                if (currentPlayingPage > 1) setCurrentPlayingPage(p => p - 1);
             });
             navigator.mediaSession.setActionHandler('nexttrack', () => {
-                if (selectedPages) {
-                    const idx = selectedPages.indexOf(currentPlayingPage);
-                    if (idx !== -1 && idx < selectedPages.length - 1) setCurrentPlayingPage(selectedPages[idx + 1]);
-                } else if (currentPlayingPage < totalPages) {
-                    setCurrentPlayingPage(p => p + 1);
-                }
+                if (currentPlayingPage < totalPages) setCurrentPlayingPage(p => p + 1);
             });
         }
-    }, [currentPlayingPage, totalPages, title, selectedPages]);
+    }, [currentPlayingPage, totalPages, title]);
 
     useEffect(() => {
         if (audioRef.current) audioRef.current.playbackRate = playbackSpeed;
@@ -112,18 +100,8 @@ export function useAudioPlayback({
 
         if (page.status === 'ready' && !page.audioUrl) {
             if (playbackState === PlaybackState.PLAYING) {
-                if (selectedPages) {
-                    const idx = selectedPages.indexOf(currentPlayingPage);
-                    if (idx !== -1 && idx < selectedPages.length - 1) {
-                        setCurrentPlayingPage(selectedPages[idx + 1]);
-                    } else {
-                        setPlaybackState(PlaybackState.IDLE);
-                    }
-                } else if (currentPlayingPage < totalPages) {
-                    setCurrentPlayingPage(p => p + 1);
-                } else {
-                    setPlaybackState(PlaybackState.IDLE);
-                }
+                if (currentPlayingPage < totalPages) setCurrentPlayingPage(p => p + 1);
+                else setPlaybackState(PlaybackState.IDLE);
             }
             return;
         }
@@ -163,22 +141,12 @@ export function useAudioPlayback({
             const end = page.segments[page.segments.length - 1].startTime + page.segments[page.segments.length - 1].duration;
 
             if (audio.currentTime >= end - 0.1) {
-                if (selectedPages) {
-                    const idx = selectedPages.indexOf(currentPlayingPage);
-                    if (idx !== -1 && idx < selectedPages.length - 1) {
-                        setCurrentPlayingPage(selectedPages[idx + 1]);
-                    } else {
-                        setPlaybackState(PlaybackState.IDLE);
-                    }
-                } else if (currentPlayingPage < totalPages) {
-                    setCurrentPlayingPage(p => p + 1);
-                } else {
-                    setPlaybackState(PlaybackState.IDLE);
-                }
+                if (currentPlayingPage < totalPages) setCurrentPlayingPage(p => p + 1);
+                else setPlaybackState(PlaybackState.IDLE);
             }
         }, 100);
         return () => clearInterval(interval);
-    }, [playbackState, currentPlayingPage, pages, totalPages, processingMode, setCurrentPlayingPage, selectedPages]);
+    }, [playbackState, currentPlayingPage, pages, totalPages, processingMode, setCurrentPlayingPage]);
 
     const togglePlayPause = () => setPlaybackState(prev =>
         (prev === PlaybackState.PLAYING || prev === PlaybackState.BUFFERING) ? PlaybackState.PAUSED : PlaybackState.PLAYING
