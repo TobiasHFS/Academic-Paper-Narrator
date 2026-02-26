@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { AudioController } from './components/AudioController';
 import { TopNavigation } from './components/TopNavigation';
@@ -45,6 +45,11 @@ export default function App() {
     localStorage.setItem('lastVoice', selectedVoice);
   }, [selectedVoice]);
 
+  const selectedPagesArray = useMemo(() => {
+    if (!prescreenData) return undefined;
+    return prescreenData.pages.filter(p => p.selected).map(p => p.pageNumber);
+  }, [prescreenData]);
+
   const {
     pages,
     apiError
@@ -55,7 +60,7 @@ export default function App() {
     processingMode,
     language,
     selectedVoice,
-    selectedPages: prescreenData?.pages.filter(p => p.selected).map(p => p.pageNumber)
+    selectedPages: selectedPagesArray
   });
 
   const {
@@ -196,10 +201,12 @@ export default function App() {
     } catch (e) { console.error(e); alert("Download failed."); }
   };
 
+  const targetTotal = narrationStarted && selectedPagesArray ? selectedPagesArray.length : totalPages;
   const completedCount = pages.filter(p => p.status === 'ready').length;
-  const progressPercent = totalPages > 0 ? Math.round((completedCount / totalPages) * 100) : 0;
-  const isFullyComplete = completedCount === totalPages && totalPages > 0;
+  const progressPercent = targetTotal > 0 ? Math.round((completedCount / targetTotal) * 100) : 0;
+  const isFullyComplete = completedCount === targetTotal && targetTotal > 0;
   const currentPageData = pages[currentPlayingPage - 1];
+  const activePageIndex = selectedPagesArray ? selectedPagesArray.indexOf(currentPlayingPage) + 1 : currentPlayingPage;
 
   if (!file) return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
@@ -359,7 +366,7 @@ export default function App() {
               processingMode={processingMode}
               progressPercent={progressPercent}
               completedCount={completedCount}
-              totalPages={totalPages}
+              totalPages={targetTotal}
               onImportSession={handleImportSession}
               onExportSession={handleExportSession}
               onDownloadFull={handleDownloadFull}
@@ -401,6 +408,8 @@ export default function App() {
                   onPrevious={() => currentPlayingPage > 1 && setCurrentPlayingPage(p => p - 1)}
                   currentPage={currentPlayingPage}
                   totalPages={totalPages}
+                  activePageIndex={activePageIndex}
+                  activeTotalPages={targetTotal}
                   speed={playbackSpeed}
                   onSpeedChange={setPlaybackSpeed}
                   mode={processingMode}
