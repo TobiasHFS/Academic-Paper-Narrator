@@ -69,9 +69,11 @@ export function usePageProcessor({
 
         try {
             const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
-            await Promise.all(pageNums.map(async (pageNum) => {
+
+            // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
+            for (const pageNum of pageNums) {
                 let rawText = "";
-                try { rawText = await extractPageText(pdfDoc, pageNum); } catch (e) { }
+                try { rawText = await extractPageText(pdfDoc, pageNum); } catch (e) { console.warn('Text fallthrough', e); }
 
                 let img = pages[pageNum - 1]?.imageUrl;
                 if (!img) {
@@ -82,7 +84,9 @@ export function usePageProcessor({
                             if (copy[pageNum - 1]) copy[pageNum - 1] = { ...copy[pageNum - 1], imageUrl: img };
                             return copy;
                         });
-                    } catch (e) { }
+                    } catch (e) {
+                        console.error('PDF.js Render failed for page', pageNum, e);
+                    }
                 }
                 if (img) {
                     batchPayload.push({ pageNum, base64Image: img, rawText });
@@ -90,7 +94,7 @@ export function usePageProcessor({
                     // Update this specific page to error so it doesn't hang in 'analyzing'
                     updatePageStatus(pageNum, 'error');
                 }
-            }));
+            }
 
             if (batchPayload.length === 0) return;
 
