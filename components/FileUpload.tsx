@@ -31,9 +31,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
   // Drag to scroll logic for Voice Previews
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [isDraggingScroll, setIsDraggingScroll] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const isDraggingRef = useRef(false);      // true once past dead zone
+  const isMouseDownRef = useRef(false);     // true while mouse is held
+  const startXRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const [isDraggingScroll, setIsDraggingScroll] = useState(false); // for CSS only
 
   const inputRef = useRef<HTMLInputElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -210,20 +212,38 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                 className={`flex gap-3 overflow-x-auto py-3 -my-3 pb-4 -mb-2 scrollbar-hide px-4 ${isDraggingScroll ? 'cursor-grabbing' : 'cursor-grab'}`}
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 onMouseDown={(e) => {
-                  setIsDraggingScroll(true);
+                  isMouseDownRef.current = true;
+                  isDraggingRef.current = false;
                   if (scrollContainerRef.current) {
-                    setStartX(e.pageX - scrollContainerRef.current.offsetLeft);
-                    setScrollLeft(scrollContainerRef.current.scrollLeft);
+                    startXRef.current = e.pageX;
+                    scrollLeftRef.current = scrollContainerRef.current.scrollLeft;
                   }
                 }}
-                onMouseLeave={() => setIsDraggingScroll(false)}
-                onMouseUp={() => setIsDraggingScroll(false)}
+                onMouseLeave={() => {
+                  isMouseDownRef.current = false;
+                  isDraggingRef.current = false;
+                  setIsDraggingScroll(false);
+                }}
+                onMouseUp={() => {
+                  isMouseDownRef.current = false;
+                  // Small delay so the click handler can check isDraggingRef
+                  setTimeout(() => {
+                    isDraggingRef.current = false;
+                    setIsDraggingScroll(false);
+                  }, 0);
+                }}
                 onMouseMove={(e) => {
-                  if (!isDraggingScroll || !scrollContainerRef.current) return;
+                  if (!isMouseDownRef.current || !scrollContainerRef.current) return;
+                  const dx = Math.abs(e.pageX - startXRef.current);
+                  // Only activate drag after moving past the dead zone (5px)
+                  if (!isDraggingRef.current && dx < 5) return;
+                  if (!isDraggingRef.current) {
+                    isDraggingRef.current = true;
+                    setIsDraggingScroll(true);
+                  }
                   e.preventDefault();
-                  const x = e.pageX - scrollContainerRef.current.offsetLeft;
-                  const walk = (x - startX) * 2.5; // Scroll speed multiplier
-                  scrollContainerRef.current.scrollLeft = scrollLeft - walk;
+                  const walk = (e.pageX - startXRef.current) * 2.5;
+                  scrollContainerRef.current.scrollLeft = scrollLeftRef.current - walk;
                 }}
               >
                 {VOICE_PROFILES.map((voice) => (
@@ -231,9 +251,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     key={voice.name}
                     whileHover={{ y: -2, scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className={`flex-none w-[170px] relative flex flex-col p-4 rounded-xl border-2 transition-all ${isDraggingScroll ? 'pointer-events-none' : 'cursor-pointer'} ${selectedVoice === voice.name ? 'border-indigo-500 bg-white ring-4 ring-indigo-50 shadow-md' : 'border-transparent bg-white/60 hover:border-slate-200 shadow-sm hover:shadow-md'}`}
+                    className={`flex-none w-[170px] relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${selectedVoice === voice.name ? 'border-indigo-500 bg-white ring-4 ring-indigo-50 shadow-md' : 'border-transparent bg-white/60 hover:border-slate-200 shadow-sm hover:shadow-md'}`}
                     onClick={() => {
-                      if (isDraggingScroll) return;
+                      if (isDraggingRef.current) return;
                       onVoiceChange(voice.name);
                     }}
                   >
@@ -245,7 +265,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!isDraggingScroll) handlePreviewVoice(voice.name);
+                        if (!isDraggingRef.current) handlePreviewVoice(voice.name);
                       }}
                       className={`flex items-center justify-center gap-2 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${previewingVoice === voice.name ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                     >
