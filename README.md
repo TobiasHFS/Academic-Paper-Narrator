@@ -1,66 +1,73 @@
-# Academic Narrator
+# Academic Paper Narrator
 
-Academic Narrator is an intelligent research assistant that converts dense academic PDFs into high-quality narrated audio or cleaned, readable text. Leveraging Google Gemini's multimodal capabilities, it preserves the logical flow of papers by intelligently handling multi-column layouts, figures, and page-spanning sentences while skipping non-narrative elements like footnotes and headers.
+> **Hey!** This is a side project where I'm experimenting with Google's [AntiGravity](https://blog.google/technology/google-deepmind/antigravity/) AI coding platform to see how far I can push it to build something actually useful for me. The entire codebase was built collaboratively with AI — I just love tinkering with new technology and seeing where it goes. Don't expect perfection, but it works surprisingly well!
 
-## Key Features
+## What is this?
 
-- **Multimodal PDF Analysis**: Uses Gemini Vision to "see" the paper layout, ensuring correct reading order in complex academic formats.
-- **Intelligent Text Stitching**: Automatically repairs sentences broken across page breaks and removes academic boilerplate.
-- **Narrative Audio Synthesis**: Generates natural, high-fidelity narration using Gemini's latest TTS models.
-- **Interactive Listening**: Smart-seek functionality allows you to double-click any word in the transcript to jump the audio to that exact moment.
-- **Flexible Export**: Export cleaned transcripts as professional EPUB eBooks or download full-length WAV narrations.
-- **Parallel Processing**: Concurrent background workers handle document processing while you listen.
+A browser-based tool that turns academic PDFs into narrated audio. Upload a paper, and it uses Google Gemini to read it, clean up the text, and generate natural-sounding narration — all running in your browser.
 
-## Getting Started
+It exists because I got tired of trying to read dense papers on screens and wanted something that could just *read them to me* properly, without mangling multi-column layouts or reading footnotes in the middle of sentences.
 
-### Prerequisites
+## What it does
 
-- [Node.js](https://nodejs.org/) (v18 or higher)
-- A Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/)
+- **Reads PDFs visually** — Uses Gemini's vision model to "see" the page layout instead of extracting raw text, so it handles multi-column papers, figures, and weird formatting without issues
+- **Generates audio narration** — Turns the cleaned-up text into natural speech using Gemini's TTS models
+- **Smart seeking** — Double-click any word in the transcript to jump the audio to that spot
+- **Page pre-screening** — Automatically detects cover pages, table of contents, references, etc. and lets you choose which pages to process
+- **Background processing** — Processes pages in parallel so you can start listening while the rest is still being prepared
+- **Export options** — Download the full audio as WAV or export the cleaned text as an EPUB eBook
+- **Save/load sessions** — Save your progress and come back to it later
 
-### Installation
+## Tech stack
 
-1. Clone the repository:
+- React + TypeScript + Vite
+- Google Gemini API (vision, text processing, TTS)
+- PDF.js for rendering
+- Tailwind CSS
+- No backend — everything runs client-side
 
-   ```bash
-   git clone git@github.com:TobiasHFS/Academic-Paper-Narrator.git
-   cd Academic-Paper-Narrator
-   ```
+## Getting started
 
-2. Install dependencies:
+### You'll need
 
-   ```bash
-   npm install
-   ```
+- [Node.js](https://nodejs.org/) (v18+)
+- A [Google Gemini API key](https://aistudio.google.com/)
 
-3. Configure your API key:
-   Create a `.env` file in the root directory and add your key:
+### Setup
 
-   ```env
-   VITE_GEMINI_API_KEY=your_api_key_here
-   ```
+```bash
+git clone https://github.com/TobiasHFS/Academic-Paper-Narrator.git
+cd Academic-Paper-Narrator
+npm install
+```
 
-### Usage
+Create a `.env` file:
 
-Start the development server:
+```env
+VITE_GEMINI_API_KEY=your_api_key_here
+```
+
+### Run it
 
 ```bash
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`.
+Then open `http://localhost:5173` in your browser.
 
-## Technical Architecture
+There's also a `start.bat` if you're on Windows and just want to double-click something.
 
-The project is built with:
+## How it works (roughly)
 
-- **Frontend**: React, TypeScript, Tailwind CSS
-- **AI Engine**: Google Gemini (Flash 1.5/2.0/3.0)
-- **PDF Core**: PDF.js
-- **State Management**: Concurrent Priority Queue for background processing
+1. You upload a PDF
+2. Each page gets rendered as an image
+3. Gemini's vision model reads the page and extracts clean text (ignoring headers, footers, footnotes)
+4. The text gets split into chunks and sent to Gemini's TTS model
+5. Audio chunks get stitched together with timing data so seeking works
+6. You listen, read along, or export
 
-For a more detailed breakdown of the internal pipeline, see [TECHNICAL_README.md](TECHNICAL_README.md).
+Pages are processed with a priority queue — the current page and the next couple get top priority, while the rest fills in the background.
 
 ## License
 
-This project is licensed under the MIT License.
+[MIT](LICENSE) — do whatever you want with it.

@@ -79,3 +79,35 @@ export const renderPageToImage = async (pdfDoc: any, pageNumber: number): Promis
     release();
   }
 };
+
+/**
+ * Renders a PDF page as a small thumbnail image for preview purposes.
+ * Uses a low scale (0.4) for fast rendering and small file size.
+ */
+export const renderPageThumbnail = async (pdfDoc: any, pageNumber: number): Promise<string> => {
+  const release = await acquireRenderLock();
+  try {
+    const page = await pdfDoc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 0.4 });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) throw new Error('Could not create canvas context');
+
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await withTimeout(
+      page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise,
+      10000,
+      `Timeout rendering thumbnail for page ${pageNumber}`
+    );
+
+    return canvas.toDataURL('image/jpeg', 0.5);
+  } finally {
+    release();
+  }
+};

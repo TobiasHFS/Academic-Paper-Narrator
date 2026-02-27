@@ -124,3 +124,6 @@ dist-ssr/
 .idea/
 *.swp
 *.swo
+
+# Test papers
+TestPapers/
