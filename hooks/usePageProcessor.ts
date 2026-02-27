@@ -183,7 +183,10 @@ export function usePageProcessor({
             if (error.status === 429 || error.message?.includes('429')) {
                 setApiError("Daily TTS Audio Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
             }
-            pageNums.forEach(p => updatePageStatus(p, 'error'));
+            // IMPORTANT: Don't set to 'error' — synthesis failure should NOT hide
+            // the perfectly good extracted text. Set to 'ready' so the text stays
+            // visible; the user just won't have audio for these pages.
+            pageNums.forEach(p => updatePageStatus(p, 'ready'));
         }
     };
 
