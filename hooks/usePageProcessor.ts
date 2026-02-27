@@ -32,6 +32,8 @@ export function usePageProcessor({
 
     // Create an abort controller that lives alongside the component instance
     const abortControllerRef = useRef(new AbortController());
+    // Track pages already dispatched to workers so state-lag can't cause duplicate batches
+    const dispatchedPagesRef = useRef<Set<number>>(new Set());
 
     // Abort all requests when the component unmounts (e.g., when 'X' is clicked returning to upload screen)
     useEffect(() => {
@@ -41,6 +43,8 @@ export function usePageProcessor({
         return () => {
             console.log("Canceling all pending API/TTS requests for closed document");
             controller.abort();
+            // Clear dispatched set when document changes so tracking resets cleanly
+            dispatchedPagesRef.current.clear();
         };
     }, [pdfDoc]);
 
@@ -53,6 +57,8 @@ export function usePageProcessor({
                 originalText: '',
                 status: 'pending'
             })));
+            // Clear dispatched set when page list is re-initialized
+            dispatchedPagesRef.current.clear();
         }
     }, [totalPages]);
 
@@ -105,18 +111,21 @@ export function usePageProcessor({
 
             setPages(prev => {
                 const copy = [...prev];
-                // Ensure EVERY page that was sent to batch is updated, even if missing from resultsMap
                 pageNums.forEach(pageNum => {
                     const idx = pageNum - 1;
-                    if (copy[idx]) {
-                        const text = resultsMap.get(pageNum) || ""; // Fallback to empty string if missing
+                    if (copy[idx] && copy[idx].status === 'analyzing') {
+                        const text = resultsMap.get(pageNum) || "";
                         const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
                         if (!text.trim()) {
-                            copy[idx] = { ...copy[idx], originalText: text, status: 'ready' };
+                            // Don't silently mark as 'ready' with empty text — show as error
+                            // so the user knows something went wrong rather than a blank white page
+                            copy[idx] = { ...copy[idx], originalText: '', status: 'error' };
                         } else {
                             copy[idx] = { ...copy[idx], originalText: text, status: nextStatus };
                         }
                     }
+                    // If status is already 'ready'/'extracted' (written by a faster duplicate worker),
+                    // don't overwrite with potentially worse results — skip.
                 });
                 return copy;
             });
@@ -128,7 +137,10 @@ export function usePageProcessor({
             if (error.status === 429 || error.message?.includes('429')) {
                 setApiError("Daily API Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
             }
-            pageNums.forEach(p => updatePageStatus(p, 'error'));
+            pageNums.forEach(p => {
+                updatePageStatus(p, 'error');
+                dispatchedPagesRef.current.delete(p);
+            });
         }
     };
 
@@ -149,6 +161,10 @@ export function usePageProcessor({
                 resultsMap.forEach((result, pageNum) => {
                     const idx = pageNum - 1;
                     if (copy[idx]) {
+                        // Revoke the old audio blob URL before replacing it to prevent memory leaks
+                        if (copy[idx].audioUrl?.startsWith('blob:')) {
+                            URL.revokeObjectURL(copy[idx].audioUrl!);
+                        }
                         copy[idx] = {
                             ...copy[idx],
                             audioUrl: result.audioUrl,
@@ -172,6 +188,18 @@ export function usePageProcessor({
         }
     };
 
+    // Revoke all audio blob URLs when the component unmounts to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            setPages(prev => {
+                prev.forEach(p => {
+                    if (p.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(p.audioUrl);
+                });
+                return prev; // No state change needed, just cleanup side-effect
+            });
+        };
+    }, []);
+
     // Manager 1: Extraction Pool
     useEffect(() => {
         if (!pdfDoc || pages.length === 0) return;
@@ -179,20 +207,22 @@ export function usePageProcessor({
         if (activeExtractionWorkers < MAX_EXTRACTION_WORKERS) {
             const findBatchToExtract = (): number[] => {
                 for (let i = currentPlayingPage; i <= totalPages; i++) {
-                    if (pages[i - 1]?.status === 'pending') {
+                    if (pages[i - 1]?.status === 'pending' && !dispatchedPagesRef.current.has(i)) {
                         const batch = [i];
                         for (let j = 1; j < BATCH_SIZE_EXTRACTION; j++) {
-                            if (i + j <= totalPages && pages[i + j - 1]?.status === 'pending') batch.push(i + j);
+                            const next = i + j;
+                            if (next <= totalPages && pages[next - 1]?.status === 'pending' && !dispatchedPagesRef.current.has(next)) batch.push(next);
                             else break;
                         }
                         return batch;
                     }
                 }
                 for (let i = 1; i < currentPlayingPage; i++) {
-                    if (pages[i - 1]?.status === 'pending') {
+                    if (pages[i - 1]?.status === 'pending' && !dispatchedPagesRef.current.has(i)) {
                         const batch = [i];
                         for (let j = 1; j < BATCH_SIZE_EXTRACTION; j++) {
-                            if (i + j < currentPlayingPage && pages[i + j - 1]?.status === 'pending') batch.push(i + j);
+                            const next = i + j;
+                            if (next < currentPlayingPage && pages[next - 1]?.status === 'pending' && !dispatchedPagesRef.current.has(next)) batch.push(next);
                             else break;
                         }
                         return batch;
@@ -203,8 +233,15 @@ export function usePageProcessor({
 
             const batch = findBatchToExtract();
             if (batch.length > 0) {
+                // Mark as dispatched synchronously BEFORE incrementing worker count,
+                // so rapid re-runs of this effect (caused by state changes) don't pick the same pages
+                batch.forEach(p => dispatchedPagesRef.current.add(p));
                 setActiveExtractionWorkers(prev => prev + 1);
-                performBatchExtraction(batch).finally(() => setActiveExtractionWorkers(prev => prev - 1));
+                performBatchExtraction(batch).finally(() => {
+                    // Remove from dispatched set when done so retry logic can re-use them if needed
+                    batch.forEach(p => dispatchedPagesRef.current.delete(p));
+                    setActiveExtractionWorkers(prev => prev - 1);
+                });
             }
         }
     }, [activeExtractionWorkers, pages, currentPlayingPage, totalPages, pdfDoc]);

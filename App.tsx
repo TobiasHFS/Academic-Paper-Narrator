@@ -145,7 +145,7 @@ export default function App() {
 
       try {
         const fileName = file?.name.replace('.pdf', '') || 'Document';
-        const epubBlob = await generateEpub(fileName, readyPages);
+        const epubBlob = await generateEpub(fileName, readyPages, language);
 
         const link = document.createElement('a');
         link.href = URL.createObjectURL(epubBlob);

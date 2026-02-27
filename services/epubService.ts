@@ -7,31 +7,31 @@ import { NarratedPage } from '../types';
  */
 export const cleanAndStitchText = (pages: NarratedPage[]): string => {
   const sortedPages = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
-  
+
   // 1. Combine all pages, but DO NOT use double newlines blindly.
   // We need to check the boundary between Page N and Page N+1.
-  
+
   let fullText = "";
 
   for (let i = 0; i < sortedPages.length; i++) {
     let currentText = sortedPages[i].originalText.trim();
-    
+
     // Skip empty pages
     if (!currentText) continue;
 
     if (i < sortedPages.length - 1) {
-      const nextText = sortedPages[i+1].originalText.trim();
-      
+      const nextText = sortedPages[i + 1].originalText.trim();
+
       // LOGIC: Repair broken sentences.
       // Condition: Current page does NOT end with sentence punctuation (. ! ? :)
       // AND Next page starts with a lowercase letter or a generic character that indicates continuation.
-      
+
       const endsWithSentenceStopper = /[.!?:]['"]?$/.test(currentText);
       const endsWithHyphen = /-$/.test(currentText);
-      
+
       // Look at the first character of the next page
       const nextStartsLowerCase = /^[a-z]/.test(nextText);
-      
+
       if (endsWithHyphen) {
         // "Soft-" + "facts" -> "Softfacts" (or "Soft facts" depending on hyphen type, but usually delete hyphen if newline)
         // Standard English rule: hyphen at line end usually means word break.
@@ -41,20 +41,20 @@ export const cleanAndStitchText = (pages: NarratedPage[]): string => {
       } else if (!endsWithSentenceStopper && nextStartsLowerCase) {
         // "on soft" + "facts" -> "on soft facts"
         // Join with a single space, NO newline.
-        currentText += " "; 
+        currentText += " ";
       } else {
         // Standard paragraph or page separation.
         // Use double newline to preserve paragraph structure.
         currentText += "\n\n";
       }
     }
-    
+
     fullText += currentText;
   }
 
   // 2. Final cleanup of any lingering "--- Page X ---" artifacts if the AI hallucinated them inside the text.
   fullText = fullText.replace(/--- Page \d+ ---/g, "");
-  
+
   return fullText;
 };
 
@@ -75,7 +75,7 @@ const markdownToHtml = (text: string): string => {
 /**
  * Generates an EPUB file blob.
  */
-export const generateEpub = async (fileName: string, pages: NarratedPage[]): Promise<Blob> => {
+export const generateEpub = async (fileName: string, pages: NarratedPage[], language: 'en' | 'de' = 'en'): Promise<Blob> => {
   const zip = new JSZip();
   const cleanText = cleanAndStitchText(pages);
   const htmlContent = `<?xml version="1.0" encoding="utf-8"?>
@@ -109,16 +109,16 @@ export const generateEpub = async (fileName: string, pages: NarratedPage[]): Pro
 
   // 3. OEBPS Folder
   const oebps = zip.folder("OEBPS");
-  
+
   // Content
   oebps?.file("content.xhtml", htmlContent);
-  
+
   // Package Definition (OPF)
   oebps?.file("content.opf", `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
         <dc:title>${fileName}</dc:title>
-        <dc:language>en</dc:language>
+        <dc:language>${language}</dc:language>
         <dc:identifier id="BookId">urn:uuid:${crypto.randomUUID()}</dc:identifier>
     </metadata>
     <manifest>

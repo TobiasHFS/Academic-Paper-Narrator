@@ -25,6 +25,11 @@ export function useAudioPlayback({
     const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.IDLE);
     const [currentTime, setCurrentTime] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    // Refs to give the stable audio event handlers access to latest values without stale closures
+    const totalPagesRef = useRef(totalPages);
+    const playbackStateRef = useRef(playbackState);
+    useEffect(() => { totalPagesRef.current = totalPages; }, [totalPages]);
+    useEffect(() => { playbackStateRef.current = playbackState; }, [playbackState]);
 
     // Initialize Audio
     useEffect(() => {
@@ -38,7 +43,15 @@ export function useAudioPlayback({
         const audio = audioRef.current;
         const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
         const handleEnded = () => {
-            // Handle natural end (though we usually use our interval for precision)
+            // Reliable fallback when the 100ms interval is throttled (backgrounded tab).
+            // Uses refs so this stable handler always sees the latest totalPages value.
+            if (totalPagesRef.current > 0) {
+                setCurrentPlayingPage(prev => {
+                    if (prev < totalPagesRef.current) return prev + 1;
+                    setPlaybackState(PlaybackState.IDLE);
+                    return prev;
+                });
+            }
         };
 
         audio.addEventListener('timeupdate', handleTimeUpdate);
