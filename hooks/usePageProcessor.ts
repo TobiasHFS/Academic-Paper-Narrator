@@ -75,11 +75,14 @@ export function usePageProcessor({
 
         try {
             const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
+            // Keep a rawText map as fallback when LLM returns empty (e.g. math-heavy pages)
+            const rawTextMap = new Map<number, string>();
 
             // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
             for (const pageNum of pageNums) {
                 let rawText = "";
                 try { rawText = await extractPageText(pdfDoc, pageNum); } catch (e) { console.warn('Text fallthrough', e); }
+                rawTextMap.set(pageNum, rawText);
 
                 let img = pages[pageNum - 1]?.imageUrl;
                 if (!img) {
@@ -114,18 +117,14 @@ export function usePageProcessor({
                 pageNums.forEach(pageNum => {
                     const idx = pageNum - 1;
                     if (copy[idx] && copy[idx].status === 'analyzing') {
-                        const text = resultsMap.get(pageNum) || "";
+                        const llmText = resultsMap.get(pageNum) || "";
+                        // If LLM returned empty, fall back to raw PDF.js text
+                        // (common on math-heavy pages where LLM outputs [[EMPTY]])
+                        const text = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
                         const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
-                        if (!text.trim()) {
-                            // Don't silently mark as 'ready' with empty text — show as error
-                            // so the user knows something went wrong rather than a blank white page
-                            copy[idx] = { ...copy[idx], originalText: '', status: 'error' };
-                        } else {
-                            copy[idx] = { ...copy[idx], originalText: text, status: nextStatus };
-                        }
+                        copy[idx] = { ...copy[idx], originalText: text, status: nextStatus };
                     }
-                    // If status is already 'ready'/'extracted' (written by a faster duplicate worker),
-                    // don't overwrite with potentially worse results — skip.
+                    // If status is already 'ready'/'extracted' (written by a faster worker), skip.
                 });
                 return copy;
             });
