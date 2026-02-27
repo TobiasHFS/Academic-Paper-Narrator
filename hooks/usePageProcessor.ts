@@ -12,7 +12,7 @@ interface UsePageProcessorProps {
     selectedVoice?: string;
 }
 
-const MAX_EXTRACTION_WORKERS = 3;
+const MAX_EXTRACTION_WORKERS = 2;
 const BATCH_SIZE_EXTRACTION = 3;
 const MAX_SYNTHESIS_WORKERS = 3;
 const MAX_TTS_CHARS_PER_BATCH = 4500;
@@ -73,10 +73,12 @@ export function usePageProcessor({
     const performBatchExtraction = async (pageNums: number[]) => {
         pageNums.forEach(p => updatePageStatus(p, 'analyzing'));
 
+        // Hoist rawTextMap OUTSIDE try — so catch block can access it as fallback
+        // when the Gemini API throws (safety filter, 500/503, rate limit, etc.)
+        const rawTextMap = new Map<number, string>();
+
         try {
             const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
-            // Keep a rawText map as fallback when LLM returns empty (e.g. math-heavy pages)
-            const rawTextMap = new Map<number, string>();
 
             // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
             for (const pageNum of pageNums) {
@@ -118,13 +120,10 @@ export function usePageProcessor({
                     const idx = pageNum - 1;
                     if (copy[idx] && copy[idx].status === 'analyzing') {
                         const llmText = resultsMap.get(pageNum) || "";
-                        // If LLM returned empty, fall back to raw PDF.js text
-                        // (common on math-heavy pages where LLM outputs [[EMPTY]])
                         const text = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
                         const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
                         copy[idx] = { ...copy[idx], originalText: text, status: nextStatus };
                     }
-                    // If status is already 'ready'/'extracted' (written by a faster worker), skip.
                 });
                 return copy;
             });
@@ -133,12 +132,29 @@ export function usePageProcessor({
             if (error.name === "AbortError" || abortControllerRef.current.signal.aborted) {
                 return; // Silently fail on abort, do not show error banner
             }
+            console.error('Extraction batch failed, falling back to raw PDF.js text:', error);
             if (error.status === 429 || error.message?.includes('429')) {
-                setApiError("Daily API Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
+                setApiError("API Rate Limit Reached. Falling back to raw text for some pages.");
             }
-            pageNums.forEach(p => {
-                updatePageStatus(p, 'error');
-                dispatchedPagesRef.current.delete(p);
+            // CRITICAL FIX: Don't permanently mark as 'error' — fall back to raw
+            // PDF.js text instead. The user sees content (lower quality) rather than
+            // an error. Only mark 'error' if we truly have no text at all.
+            setPages(prev => {
+                const copy = [...prev];
+                pageNums.forEach(p => {
+                    const idx = p - 1;
+                    if (copy[idx] && copy[idx].status === 'analyzing') {
+                        const fallbackText = rawTextMap.get(p) || "";
+                        if (fallbackText.trim()) {
+                            const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
+                            copy[idx] = { ...copy[idx], originalText: fallbackText, status: nextStatus };
+                        } else {
+                            copy[idx] = { ...copy[idx], status: 'error' };
+                        }
+                    }
+                    dispatchedPagesRef.current.delete(p);
+                });
+                return copy;
             });
         }
     };

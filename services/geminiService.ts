@@ -281,7 +281,17 @@ async function retryGenerate(ai: any, params: any, extraConfig?: { signal?: Abor
     if (extraConfig?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
       const response = await ai.models.generateContent(params, extraConfig);
-      return response.text || "";
+      // In the @google/genai SDK, response.text can THROW if the response was
+      // blocked by safety filters. Guard against this:
+      try {
+        return response.text || "";
+      } catch {
+        // Safety-blocked or malformed response — try extracting manually
+        const fallback = response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (fallback) return fallback;
+        console.warn('Gemini response had no extractable text (possibly safety-blocked)');
+        return "";
+      }
     } catch (error: any) {
       if (error.name === "AbortError" || extraConfig?.signal?.aborted) throw error;
 
