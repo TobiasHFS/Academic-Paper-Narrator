@@ -73,12 +73,11 @@ export function usePageProcessor({
     const performBatchExtraction = async (pageNums: number[]) => {
         pageNums.forEach(p => updatePageStatus(p, 'analyzing'));
 
-        // Hoist rawTextMap OUTSIDE try — so catch block can access it as fallback
-        // when the Gemini API throws (safety filter, 500/503, rate limit, etc.)
+        // Hoist outside try — so catch block can access them for per-page retry
         const rawTextMap = new Map<number, string>();
+        const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
 
         try {
-            const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
 
             // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
             for (const pageNum of pageNums) {
@@ -132,30 +131,50 @@ export function usePageProcessor({
             if (error.name === "AbortError" || abortControllerRef.current.signal.aborted) {
                 return; // Silently fail on abort, do not show error banner
             }
-            console.error('Extraction batch failed, falling back to raw PDF.js text:', error);
-            if (error.status === 429 || error.message?.includes('429')) {
-                setApiError("API Rate Limit Reached. Falling back to raw text for some pages.");
-            }
-            // CRITICAL FIX: Don't permanently mark as 'error' — fall back to raw
-            // PDF.js text instead. The user sees content (lower quality) rather than
-            // an error. Only mark 'error' if we truly have no text at all.
-            setPages(prev => {
-                const copy = [...prev];
-                pageNums.forEach(p => {
-                    const idx = p - 1;
-                    if (copy[idx] && copy[idx].status === 'analyzing') {
-                        const fallbackText = rawTextMap.get(p) || "";
-                        if (fallbackText.trim()) {
-                            const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
-                            copy[idx] = { ...copy[idx], originalText: fallbackText, status: nextStatus };
-                        } else {
-                            copy[idx] = { ...copy[idx], status: 'error' };
+            console.warn('Batch extraction failed, retrying pages individually:', error.message || error);
+
+            // Per-page retry: Don't let one problematic page crash its neighbors.
+            // Try each page one at a time — most will succeed even if the batch failed.
+            for (const pageNum of pageNums) {
+                if (abortControllerRef.current.signal.aborted) return;
+
+                const payload = batchPayload.find(p => p.pageNum === pageNum);
+                if (!payload) continue; // Page had no image, already set to 'error'
+
+                try {
+                    const singleResult = await extractScriptBatch(
+                        [payload], language, abortControllerRef.current.signal
+                    );
+                    const llmText = singleResult.get(pageNum) || "";
+                    const text = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
+                    const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
+                    setPages(prev => {
+                        const copy = [...prev];
+                        if (copy[pageNum - 1] && copy[pageNum - 1].status === 'analyzing') {
+                            copy[pageNum - 1] = { ...copy[pageNum - 1], originalText: text, status: nextStatus };
                         }
-                    }
-                    dispatchedPagesRef.current.delete(p);
-                });
-                return copy;
-            });
+                        return copy;
+                    });
+                } catch (retryErr: any) {
+                    if (retryErr.name === "AbortError") return;
+                    console.error(`Individual retry failed for page ${pageNum}:`, retryErr.message);
+                    // Final fallback: use raw PDF.js text
+                    const fallbackText = rawTextMap.get(pageNum) || "";
+                    const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
+                    setPages(prev => {
+                        const copy = [...prev];
+                        if (copy[pageNum - 1] && copy[pageNum - 1].status === 'analyzing') {
+                            if (fallbackText.trim()) {
+                                copy[pageNum - 1] = { ...copy[pageNum - 1], originalText: fallbackText, status: nextStatus };
+                            } else {
+                                copy[pageNum - 1] = { ...copy[pageNum - 1], status: 'error' };
+                            }
+                        }
+                        return copy;
+                    });
+                    dispatchedPagesRef.current.delete(pageNum);
+                }
+            }
         }
     };
 
