@@ -10,6 +10,7 @@ interface UsePageProcessorProps {
     processingMode: 'audio' | 'text';
     language: 'en' | 'de';
     selectedVoice?: string;
+    selectedPages?: number[];  // Original PDF page numbers to process (if provided, maps virtual->real)
 }
 
 const MAX_EXTRACTION_WORKERS = 2;
@@ -23,8 +24,14 @@ export function usePageProcessor({
     totalPages,
     processingMode,
     language,
-    selectedVoice = 'Fenrir'
+    selectedVoice = 'Fenrir',
+    selectedPages
 }: UsePageProcessorProps) {
+    // When selectedPages is provided, map virtual page index (1-based) to real PDF page number
+    const getRealPageNum = (virtualPage: number): number => {
+        if (!selectedPages) return virtualPage;
+        return selectedPages[virtualPage - 1] ?? virtualPage;
+    };
     const [pages, setPages] = useState<NarratedPage[]>([]);
     const [activeExtractionWorkers, setActiveExtractionWorkers] = useState(0);
     const [activeSynthesisWorkers, setActiveSynthesisWorkers] = useState(0);
@@ -81,14 +88,15 @@ export function usePageProcessor({
 
             // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
             for (const pageNum of pageNums) {
+                const realPageNum = getRealPageNum(pageNum);
                 let rawText = "";
-                try { rawText = await extractPageText(pdfDoc, pageNum); } catch (e) { console.warn('Text fallthrough', e); }
+                try { rawText = await extractPageText(pdfDoc, realPageNum); } catch (e) { console.warn('Text fallthrough', e); }
                 rawTextMap.set(pageNum, rawText);
 
                 let img = pages[pageNum - 1]?.imageUrl;
                 if (!img) {
                     try {
-                        img = await renderPageToImage(pdfDoc, pageNum);
+                        img = await renderPageToImage(pdfDoc, realPageNum);
                         setPages(prev => {
                             const copy = [...prev];
                             if (copy[pageNum - 1]) copy[pageNum - 1] = { ...copy[pageNum - 1], imageUrl: img };

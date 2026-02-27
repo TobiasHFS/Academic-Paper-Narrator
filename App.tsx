@@ -7,7 +7,6 @@ import { PdfView } from './components/PdfView';
 import { loadPdf } from './services/pdfService';
 import { generateEpub } from './services/epubService';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PDFDocument } from 'pdf-lib';
 
 import { BookOpen, Loader2 } from 'lucide-react';
 import { useAudioPlayback } from './hooks/useAudioPlayback';
@@ -28,9 +27,7 @@ export default function App() {
   // Mediation State
   const [prescreenData, setPrescreenData] = useState<PrescreenResult | null>(null);
   const [isPrescreening, setIsPrescreening] = useState(false);
-  const [isSlicing, setIsSlicing] = useState(false);
   const [narrationStarted, setNarrationStarted] = useState(false);
-  const [originalFile, setOriginalFile] = useState<File | null>(null);
 
   const pdfDocRef = useRef<any>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -62,7 +59,8 @@ export default function App() {
     totalPages,
     processingMode,
     language,
-    selectedVoice
+    selectedVoice,
+    selectedPages: narrationStarted ? selectedPagesArray : undefined
   });
 
   const {
@@ -81,7 +79,6 @@ export default function App() {
   });
 
   const handleFileSelect = async (selectedFile: File) => {
-    setOriginalFile(selectedFile);
     setFile(selectedFile);
     setIsPrescreening(true);
     setPrescreenData(null);
@@ -127,12 +124,10 @@ export default function App() {
 
   const handleAbort = () => {
     abortControllerRef.current?.abort();
-    setOriginalFile(null);
     setFile(null);
     pdfDocRef.current = null;
     setPrescreenData(null);
     setIsPrescreening(false);
-    setIsSlicing(false);
     setNarrationStarted(false);
     setCurrentPlayingPage(1);
     setTotalPages(0);
@@ -341,20 +336,6 @@ export default function App() {
               Scanning pages to identify formatting, tables of contents, and references so you only listen to what matters...
             </p>
           </motion.div>
-        ) : isSlicing ? (
-          <motion.div
-            key="slicing-loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center min-h-screen p-6"
-          >
-            <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mb-6" />
-            <h2 className="text-2xl font-bold text-slate-800 mb-2 font-serif">Slicing Document</h2>
-            <p className="text-slate-500 max-w-sm text-center">
-              Physically extracting your selected pages to generate a clean narration file...
-            </p>
-          </motion.div>
         ) : prescreenData && !narrationStarted ? (
           <motion.div
             key="mediation"
@@ -366,50 +347,11 @@ export default function App() {
               prescreenData={prescreenData}
               pdfDoc={pdfDocRef.current}
               onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
-              onStartNarration={async () => {
-                if (!originalFile || !selectedPagesArray || selectedPagesArray.length === 0) return;
-
-                setIsSlicing(true);
-                try {
-                  const arrayBuffer = await originalFile.arrayBuffer();
-                  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-                  const newPdf = await PDFDocument.create();
-
-                  // pdf-lib uses 0-indexed page numbers
-                  const pageIndices = selectedPagesArray.map(p => p - 1);
-                  const copiedPages = await newPdf.copyPages(pdfDoc, pageIndices);
-
-                  for (const page of copiedPages) {
-                    newPdf.addPage(page);
-                  }
-
-                  const pdfBytes = await newPdf.save();
-                  // Extract only the precise byte window of the Uint8Array into a new ArrayBuffer
-                  // to prevent copying the entire underlying memory pool (which could contain the old PDF)
-                  const exactBuffer = pdfBytes.buffer.slice(
-                    pdfBytes.byteOffset,
-                    pdfBytes.byteOffset + pdfBytes.byteLength
-                  ) as ArrayBuffer;
-                  const slicedBlob = new Blob([exactBuffer], { type: 'application/pdf' });
-                  const slicedFile = new File([slicedBlob], originalFile.name, { type: 'application/pdf' });
-
-                  setFile(slicedFile);
-
-                  // Pass the precise exactBuffer to pdfjsLib directly to avoid Blob memory pooling issues
-                  // that cause pdfjsLib to misread the byte size and think the old PDF metadata still exists.
-                  const pdfjsDoc = await loadPdf(new Uint8Array(exactBuffer));
-                  pdfDocRef.current = pdfjsDoc;
-
-                  setTotalPages(pdfjsDoc.numPages);
-                  setCurrentPlayingPage(1);
-                  setNarrationStarted(true);
-                } catch (e) {
-                  console.error("Failed to slice PDF", e);
-                  alert("Failed to extract the selected pages. Resuming with full document.");
-                  setNarrationStarted(true);
-                } finally {
-                  setIsSlicing(false);
-                }
+              onStartNarration={() => {
+                if (!selectedPagesArray || selectedPagesArray.length === 0) return;
+                setTotalPages(selectedPagesArray.length);
+                setCurrentPlayingPage(1);
+                setNarrationStarted(true);
               }}
               onAbort={handleAbort}
             />

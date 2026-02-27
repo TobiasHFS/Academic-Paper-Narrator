@@ -109,19 +109,32 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     setPreviewingVoice(voiceName);
 
     try {
+      let audioUrl: string | null = null;
       const cacheKey = `${voiceName}_${language}_preview`;
-      let audioUrl: string;
 
-      // 1. Check persistent cache
-      const cachedBlob = await getPreview(cacheKey);
-      if (cachedBlob) {
-        audioUrl = URL.createObjectURL(cachedBlob);
-      } else {
-        // 2. Fetch from API
+      // 1. Try local bundled WAV file first (instant, no API call)
+      const localPath = `/voices/${voiceName}_${language}_preview.wav`;
+      try {
+        const localRes = await fetch(localPath);
+        if (localRes.ok) {
+          const blob = await localRes.blob();
+          audioUrl = URL.createObjectURL(blob);
+        }
+      } catch { /* local file not found, continue */ }
+
+      // 2. Check persistent IndexedDB cache
+      if (!audioUrl) {
+        const cachedBlob = await getPreview(cacheKey);
+        if (cachedBlob) {
+          audioUrl = URL.createObjectURL(cachedBlob);
+        }
+      }
+
+      // 3. Fallback: Fetch from API and cache
+      if (!audioUrl) {
         const blobUrl = await generateVoicePreview(voiceName, language);
         audioUrl = blobUrl;
 
-        // 3. Save to persistent cache
         const response = await fetch(blobUrl);
         const blob = await response.blob();
         await savePreview(cacheKey, blob);
@@ -207,6 +220,33 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-slate-50 to-transparent z-10 pointer-events-none rounded-l-2xl"></div>
               <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-slate-50 to-transparent z-10 pointer-events-none rounded-r-2xl"></div>
 
+              {/* Scroll arrow buttons */}
+              {scrollContainerRef.current && (() => {
+                const el = scrollContainerRef.current!;
+                const canScrollLeft = el.scrollLeft > 10;
+                const canScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 10;
+                return (
+                  <>
+                    {canScrollLeft && (
+                      <button
+                        onClick={() => el.scrollBy({ left: -200, behavior: 'smooth' })}
+                        className="absolute left-1 top-1/2 -translate-y-1/2 z-20 w-7 h-7 bg-white/90 backdrop-blur border border-slate-200 rounded-full flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:border-indigo-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ‹
+                      </button>
+                    )}
+                    {canScrollRight && (
+                      <button
+                        onClick={() => el.scrollBy({ left: 200, behavior: 'smooth' })}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 z-20 w-7 h-7 bg-white/90 backdrop-blur border border-slate-200 rounded-full flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:border-indigo-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ›
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+
               <div
                 ref={scrollContainerRef}
                 className={`flex gap-3 overflow-x-auto py-3 -my-3 pb-4 -mb-2 scrollbar-hide px-4 ${isDraggingScroll ? 'cursor-grabbing' : 'cursor-grab'}`}
@@ -281,6 +321,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                     )}
                   </motion.div>
                 ))}
+              </div>
+
+              {/* Scroll hint - shows when there are more voices to the right */}
+              <div className="text-center mt-1">
+                <span className="text-[10px] text-slate-400 font-medium animate-pulse">
+                  ← Drag or scroll for more voices →
+                </span>
               </div>
             </div>
           </motion.div>

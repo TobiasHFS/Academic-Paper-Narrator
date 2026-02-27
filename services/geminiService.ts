@@ -11,9 +11,9 @@ export const VOICE_PROFILES = [
   { name: 'Charon', label: 'Charon (Steady, Masculine)', description: 'Neutral and reliable, easy to follow.' },
   { name: 'Kore', label: 'Kore (Soft, Female)', description: 'Warm and gentle, less robotic.' },
   { name: 'Puck', label: 'Puck (Energetic, Masculine)', description: 'Engaging and lively delivery.' },
-  { name: 'Rheia', label: 'Rheia (Sophisticated, Female)', description: 'Smooth, authoritative, and professional.' },
-  { name: 'Orpheus', label: 'Orpheus (Narrative, Masculine)', description: 'Storyteller style, very natural flow.' },
-  { name: 'Muses', label: 'Muses (Balanced, Female)', description: 'Classic academic narration style.' },
+  { name: 'Leda', label: 'Leda (Sophisticated, Female)', description: 'Smooth, authoritative, and professional.' },
+  { name: 'Orus', label: 'Orus (Narrative, Masculine)', description: 'Storyteller style, very natural flow.' },
+  { name: 'Zephyr', label: 'Zephyr (Balanced, Neutral)', description: 'Classic academic narration style.' },
 ];
 
 const getSystemInstruction = (language: 'en' | 'de') => `
