@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NarratedPage } from '../types';
 import { renderPageToImage, extractPageText } from '../services/pdfService';
 import { extractScriptBatch, synthesizeBatch } from '../services/geminiService';
@@ -31,12 +31,12 @@ export function usePageProcessor({
     const [apiError, setApiError] = useState<string | undefined>(undefined);
 
     // Create an abort controller that lives alongside the component instance
-    const [abortController, setAbortController] = useState(() => new AbortController());
+    const abortControllerRef = useRef(new AbortController());
 
     // Abort all requests when the component unmounts (e.g., when 'X' is clicked returning to upload screen)
     useEffect(() => {
         const controller = new AbortController();
-        setAbortController(controller);
+        abortControllerRef.current = controller;
 
         return () => {
             console.log("Canceling all pending API/TTS requests for closed document");
@@ -99,9 +99,9 @@ export function usePageProcessor({
             if (batchPayload.length === 0) return;
 
             batchPayload.sort((a, b) => a.pageNum - b.pageNum);
-            const resultsMap = await extractScriptBatch(batchPayload, language, abortController.signal);
+            const resultsMap = await extractScriptBatch(batchPayload, language, abortControllerRef.current.signal);
 
-            if (abortController.signal.aborted) return;
+            if (abortControllerRef.current.signal.aborted) return;
 
             setPages(prev => {
                 const copy = [...prev];
@@ -122,7 +122,7 @@ export function usePageProcessor({
             });
 
         } catch (error: any) {
-            if (error.name === "AbortError" || abortController.signal.aborted) {
+            if (error.name === "AbortError" || abortControllerRef.current.signal.aborted) {
                 return; // Silently fail on abort, do not show error banner
             }
             if (error.status === 429 || error.message?.includes('429')) {
@@ -140,9 +140,9 @@ export function usePageProcessor({
 
         try {
             const input = batchPages.map(p => ({ pageNum: p.pageNumber, text: p.originalText }));
-            const resultsMap = await synthesizeBatch(input, selectedVoice, abortController.signal);
+            const resultsMap = await synthesizeBatch(input, selectedVoice, abortControllerRef.current.signal);
 
-            if (abortController.signal.aborted) return;
+            if (abortControllerRef.current.signal.aborted) return;
 
             setPages(prev => {
                 const copy = [...prev];
@@ -161,7 +161,7 @@ export function usePageProcessor({
             });
 
         } catch (error: any) {
-            if (error.name === "AbortError" || abortController.signal.aborted) {
+            if (error.name === "AbortError" || abortControllerRef.current.signal.aborted) {
                 return; // Silently exit without causing errors on unmount
             }
             console.error(`Synthesis Batch error`, error);
