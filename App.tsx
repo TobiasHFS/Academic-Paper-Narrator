@@ -364,6 +364,7 @@ export default function App() {
           >
             <MediationView
               prescreenData={prescreenData}
+              pdfDoc={pdfDocRef.current}
               onUpdateSelection={(pages) => setPrescreenData({ ...prescreenData, pages })}
               onStartNarration={async () => {
                 if (!originalFile || !selectedPagesArray || selectedPagesArray.length === 0) return;
@@ -371,7 +372,7 @@ export default function App() {
                 setIsSlicing(true);
                 try {
                   const arrayBuffer = await originalFile.arrayBuffer();
-                  const pdfDoc = await PDFDocument.load(arrayBuffer);
+                  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
                   const newPdf = await PDFDocument.create();
 
                   // pdf-lib uses 0-indexed page numbers

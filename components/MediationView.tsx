@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PrescreenResult, PrescreenPage, PageCategory } from '../types';
+import { renderPageThumbnail } from '../services/pdfService';
 import { FileDown, CheckCircle, Circle, Play, Info, X, ChevronDown, ChevronRight, CheckSquare, Square } from 'lucide-react';
 
 interface MediationViewProps {
     prescreenData: PrescreenResult;
+    pdfDoc: any;
     onUpdateSelection: (updatedPages: PrescreenPage[]) => void;
     onStartNarration: () => void;
     onAbort: () => void;
@@ -30,12 +32,53 @@ const CATEGORY_COLORS: Record<PageCategory, { bg: string, text: string }> = {
 
 export const MediationView: React.FC<MediationViewProps> = ({
     prescreenData,
+    pdfDoc,
     onUpdateSelection,
     onStartNarration,
     onAbort
 }) => {
-    // Keep all categories closed by default so users can see the overall structure clearly
     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+    const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
+    const [loadingThumbnails, setLoadingThumbnails] = useState<Record<number, boolean>>({});
+    const thumbnailQueueRef = useRef<Set<number>>(new Set());
+
+    // Render thumbnails for pages in expanded categories
+    useEffect(() => {
+        if (!pdfDoc) return;
+
+        const expandedPages = prescreenData.pages.filter(p => {
+            return !!expandedCategories[p.category];
+        });
+
+        const pagesToRender = expandedPages.filter(
+            p => !thumbnails[p.pageNumber] && !thumbnailQueueRef.current.has(p.pageNumber)
+        );
+
+        if (pagesToRender.length === 0) return;
+
+        // Mark all as queued
+        for (const p of pagesToRender) {
+            thumbnailQueueRef.current.add(p.pageNumber);
+        }
+
+        // Render sequentially to avoid overwhelming the render lock
+        const renderSequentially = async () => {
+            for (const page of pagesToRender) {
+                setLoadingThumbnails(prev => ({ ...prev, [page.pageNumber]: true }));
+                try {
+                    const dataUrl = await renderPageThumbnail(pdfDoc, page.pageNumber);
+                    setThumbnails(prev => ({ ...prev, [page.pageNumber]: dataUrl }));
+                } catch (e) {
+                    console.warn(`Failed to render thumbnail for page ${page.pageNumber}`, e);
+                } finally {
+                    setLoadingThumbnails(prev => ({ ...prev, [page.pageNumber]: false }));
+                    thumbnailQueueRef.current.delete(page.pageNumber);
+                }
+            }
+        };
+
+        renderSequentially();
+    }, [expandedCategories, pdfDoc, prescreenData.pages]);
 
     const togglePage = (pageNumber: number) => {
         const updated = prescreenData.pages.map(p =>
@@ -72,7 +115,7 @@ export const MediationView: React.FC<MediationViewProps> = ({
         return acc;
     }, {} as Record<string, PrescreenPage[]>);
 
-    // Sort categories (Main first, then logical order)
+    // Sort categories
     const categoryOrder: PageCategory[] = ['main', 'cover', 'toc', 'appendix', 'references', 'blank'];
     const activeCategories = categoryOrder.filter(cat => groupedPages[cat] && groupedPages[cat].length > 0);
 
@@ -122,7 +165,7 @@ export const MediationView: React.FC<MediationViewProps> = ({
 
                     return (
                         <div key={category} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                            {/* Category Header (Accordion Tile) */}
+                            {/* Category Header */}
                             <div
                                 onClick={(e) => toggleCategory(category, e)}
                                 className={`flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
@@ -158,7 +201,7 @@ export const MediationView: React.FC<MediationViewProps> = ({
                                 </button>
                             </div>
 
-                            {/* Expanded Individual Pages Grid */}
+                            {/* Expanded Individual Pages Grid - Thumbnails */}
                             <AnimatePresence>
                                 {isExpanded && (
                                     <motion.div
@@ -167,32 +210,56 @@ export const MediationView: React.FC<MediationViewProps> = ({
                                         exit={{ height: 0, opacity: 0 }}
                                         className="overflow-hidden"
                                     >
-                                        <div className="p-4 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            {pages.map((page) => (
-                                                <motion.div
-                                                    key={page.pageNumber}
-                                                    whileHover={{ scale: 1.02 }}
-                                                    whileTap={{ scale: 0.98 }}
-                                                    onClick={() => togglePage(page.pageNumber)}
-                                                    className={`cursor-pointer border-2 rounded-xl p-3 transition-all flex items-start gap-3 bg-white ${page.selected
-                                                        ? 'border-indigo-500 shadow-sm'
-                                                        : 'border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-300'
-                                                        }`}
-                                                >
-                                                    <div className={`mt-0.5 ${page.selected ? 'text-indigo-600' : 'text-slate-300'}`}>
-                                                        {page.selected ? <CheckCircle className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                                                    </div>
+                                        <div className="p-4 bg-slate-50/50 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                            {pages.map((page) => {
+                                                const thumb = thumbnails[page.pageNumber];
+                                                const isLoading = !!loadingThumbnails[page.pageNumber];
 
-                                                    <div className="flex-1 min-w-0">
-                                                        <span className={`font-bold text-sm block mb-1 ${page.selected ? 'text-indigo-900' : 'text-slate-500'}`}>
-                                                            Page {page.pageNumber}
-                                                        </span>
-                                                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                                                            {page.reasoning}
-                                                        </p>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
+                                                return (
+                                                    <motion.div
+                                                        key={page.pageNumber}
+                                                        whileHover={{ scale: 1.04 }}
+                                                        whileTap={{ scale: 0.96 }}
+                                                        onClick={() => togglePage(page.pageNumber)}
+                                                        className={`cursor-pointer border-2 rounded-xl overflow-hidden transition-all bg-white flex flex-col ${page.selected
+                                                            ? 'border-indigo-500 shadow-md shadow-indigo-100'
+                                                            : 'border-slate-200 opacity-50 hover:opacity-100 hover:border-slate-300'
+                                                            }`}
+                                                    >
+                                                        {/* Thumbnail Image */}
+                                                        <div className="relative w-full bg-slate-100" style={{ aspectRatio: '0.707' }}>
+                                                            {thumb ? (
+                                                                <img
+                                                                    src={thumb}
+                                                                    alt={`Page ${page.pageNumber}`}
+                                                                    className="w-full h-full object-contain"
+                                                                    draggable={false}
+                                                                />
+                                                            ) : isLoading ? (
+                                                                <div className="w-full h-full flex items-center justify-center">
+                                                                    <div className="w-5 h-5 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin" />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                                                    <FileDown className="w-6 h-6" />
+                                                                </div>
+                                                            )}
+
+                                                            {/* Selection indicator overlay */}
+                                                            <div className={`absolute top-1.5 right-1.5 ${page.selected ? 'text-indigo-600' : 'text-slate-300'}`}>
+                                                                {page.selected ? <CheckCircle className="w-5 h-5 drop-shadow" /> : <Circle className="w-5 h-5 drop-shadow" />}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Page number label */}
+                                                        <div className="px-2 py-1.5 text-center border-t border-slate-100">
+                                                            <span className={`font-bold text-xs ${page.selected ? 'text-indigo-900' : 'text-slate-400'}`}>
+                                                                Page {page.pageNumber}
+                                                            </span>
+                                                        </div>
+                                                    </motion.div>
+                                                );
+                                            })}
                                         </div>
                                     </motion.div>
                                 )}
