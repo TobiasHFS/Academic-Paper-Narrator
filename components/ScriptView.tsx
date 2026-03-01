@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { FileText, Loader, Sparkles, AlertCircle } from 'lucide-react';
 import { NarratedPage } from '../types';
+import katex from 'katex';
 
 interface ScriptViewProps {
     currentPageData: NarratedPage | undefined;
@@ -8,6 +9,62 @@ interface ScriptViewProps {
     currentTime: number;
     apiError?: string;
     onWordDoubleClick: (index: number) => void;
+}
+
+/**
+ * Parse text into segments of plain text and LaTeX math.
+ * Supports $$...$$ (display) and $...$ (inline).
+ */
+function parseMathSegments(text: string): { type: 'text' | 'display-math' | 'inline-math'; content: string }[] {
+    const segments: { type: 'text' | 'display-math' | 'inline-math'; content: string }[] = [];
+    // Regex matches $$...$$ first (display), then $...$ (inline)
+    const mathRegex = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = mathRegex.exec(text)) !== null) {
+        // Add any text before this match
+        if (match.index > lastIndex) {
+            segments.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+        }
+        if (match[1] !== undefined) {
+            segments.push({ type: 'display-math', content: match[1] });
+        } else if (match[2] !== undefined) {
+            segments.push({ type: 'inline-math', content: match[2] });
+        }
+        lastIndex = match.index + match[0].length;
+    }
+    // Add remaining text
+    if (lastIndex < text.length) {
+        segments.push({ type: 'text', content: text.slice(lastIndex) });
+    }
+    return segments;
+}
+
+/**
+ * Render a string that may contain LaTeX math into React elements.
+ */
+function renderMathInText(text: string): React.ReactNode[] {
+    const segments = parseMathSegments(text);
+    return segments.map((seg, i) => {
+        if (seg.type === 'text') {
+            return <span key={i}>{seg.content}</span>;
+        }
+        try {
+            const html = katex.renderToString(seg.content, {
+                throwOnError: false,
+                displayMode: seg.type === 'display-math',
+                output: 'html',
+            });
+            if (seg.type === 'display-math') {
+                return <div key={i} className="my-3 overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />;
+            }
+            return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
+        } catch {
+            // Fallback: show raw math if KaTeX fails
+            return <code key={i} className="text-sm bg-slate-100 px-1 rounded">{seg.type === 'display-math' ? `$$${seg.content}$$` : `$${seg.content}$`}</code>;
+        }
+    });
 }
 
 export const ScriptView: React.FC<ScriptViewProps> = ({
@@ -43,12 +100,12 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
 
     const renderTextWithEvents = (text: string) => {
         if (processingMode === 'text' || !currentPageData?.segments) {
-            return <span className="text-slate-700">{text}</span>;
+            return <span className="text-slate-700">{renderMathInText(text)}</span>;
         }
 
         // Fallback for old sessions that only have 1 segment per page
         if (currentPageData.segments.length <= 1) {
-            return <span className="text-slate-700">{text}</span>;
+            return <span className="text-slate-700">{renderMathInText(text)}</span>;
         }
 
         return currentPageData.segments.map((segment, index) => {
@@ -59,6 +116,9 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                 return <span key={index}>{segment.text}</span>;
             }
 
+            // Check if this segment's text contains LaTeX
+            const hasMath = segment.text.includes('$');
+
             return (
                 <span
                     key={index}
@@ -66,7 +126,7 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                     onDoubleClick={() => onWordDoubleClick(index)}
                     className={`cursor-pointer hover:underline decoration-indigo-300 underline-offset-4 transition-colors duration-200 rounded px-0.5 mx-0 -my-0.5 ${isActive ? 'bg-indigo-100/80 text-indigo-950 font-medium shadow-[inset_0_-2px_0_theme(colors.indigo.400)]' : 'text-slate-700'}`}
                 >
-                    {segment.text}
+                    {hasMath ? renderMathInText(segment.text) : segment.text}
                 </span>
             );
         });
@@ -109,7 +169,7 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                             </div>
                         )}
                         <div className={`prose prose-slate max-w-none ${processingMode === 'audio' ? 'opacity-50' : ''}`}>
-                            <p className="font-serif text-lg leading-relaxed text-slate-800 whitespace-pre-wrap">{currentPageData.originalText}</p>
+                            <div className="font-serif text-lg leading-relaxed text-slate-800 whitespace-pre-wrap">{renderMathInText(currentPageData.originalText)}</div>
                         </div>
                     </div>
                 )}
@@ -121,12 +181,13 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                 )}
                 {currentPageData?.status === 'ready' && currentPageData?.originalText && (
                     <div className="prose prose-slate max-w-none">
-                        <p className="font-serif text-lg leading-relaxed text-slate-800 whitespace-pre-wrap">
+                        <div className="font-serif text-lg leading-relaxed text-slate-800 whitespace-pre-wrap">
                             {renderTextWithEvents(currentPageData.originalText)}
-                        </p>
+                        </div>
                     </div>
                 )}
             </div>
         </div>
     );
 };
+

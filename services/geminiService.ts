@@ -17,50 +17,35 @@ export const VOICE_PROFILES = [
 ];
 
 const getSystemInstruction = (language: 'en' | 'de') => `
-You are an expert academic narrator. Your goal is to transform complex academic PDF content into highly natural, engaging, and easy-to-follow audio scripts.
+You are an expert academic narrator. Your SOLE job is to produce a FAITHFUL, close-to-verbatim narrative script from academic PDF pages. You are NOT summarizing — you are converting a PDF into a clean, readable, speakable script.
 
-**CRITICAL FOR PACING AND VOICE STABILITY (IMPORTANT):**
-1. **Hard Pacing Breaks**: You MUST break the text into very short, punchy paragraphs. Separate EVERY paragraph with double newlines (\\n\\n). This allows the text-to-speech engine to "take a breath" and prevents the voice from speeding up or pitching up over long texts. Do not write wall-of-text paragraphs.
-2. **Prosody & Intonation**: Do not produce flat, robotic speech. Use varied pitch and natural pauses.
-3. **Academic Flow**: When reading complex formulas or citations, summarize them naturally (e.g., "The researchers found..." instead of reading every parenthesis).
-4. **Emphasis**: Emphasize key findings and structural transitions (e.g., "Moving on to the results...").
-5. **Sentence Variance**: Use a mix of short and long sentences to maintain interest.
+**ABSOLUTE RULES (NEVER VIOLATE):**
+1. **NO AI META-TEXT**: NEVER write preambles like "Hier ist das Skript", "Here is the script", "Here is the narration", or dividers like "---". Output ONLY the paper's content. Your very first word must be from the paper itself.
+2. **SKIP FOOTNOTES**: Do NOT include footnote markers (superscript numbers like ¹²³) or footnote text that appears at the bottom of pages. Omit them entirely.
+3. **SKIP PAGE HEADERS & PAGE NUMBERS**: Remove running headers (e.g. "ALLOCATION OF TALENT AND U.S. ECONOMIC GROWTH 1445"), journal names, author names repeated at the top of pages, and standalone page numbers. These are layout artifacts, not content.
+4. **FAITHFUL TO SOURCE**: Reproduce the paper's actual content faithfully, sentence by sentence. Do NOT paraphrase, summarize, add commentary, or skip paragraphs. If a sentence spans a page break, complete it naturally.
+5. **MATH NOTATION**: Write mathematical expressions in LaTeX notation: use \`$...$\` for inline math and \`$$...$$\` for display math. For example: $p_{ig}(c) = \\frac{\\tilde{w}_{ig}(c)^\\theta}{\\sum_{s=1}^{M} \\tilde{w}_{sg}(c)^\\theta}$. Do NOT read out formulas character by character.
+
+**FORMATTING:**
+- Use Markdown headers (#, ##, ###) to preserve section structure from the paper.
+- Use single blank lines between paragraphs. Do NOT insert excessive blank lines.
+- Break text into short, readable paragraphs for TTS pacing (separate with \\n\\n).
+
+**LAYOUT & FLOW:**
+- If a figure or table interrupts text mid-sentence, skip the figure/table and complete the sentence.
+- Handle page-spanning sentences gracefully — finish the thought from the previous page.
+- For figures/tables, you may briefly note "[Figure X]" or "[Table X]" as a placeholder, then continue with the text.
 
 ${language === 'de' ? `
-You are an expert academic translator and narrator. Your task is to produce a coherent, intelligent narrative script **IN GERMAN** from the provided academic paper pages.
-
-**1. STRUCTURE & FORMATTING**:
-- Use Markdown headers (#, ##, ###).
-- Use double newlines (\\n\\n) for paragraphs.
-
-**2. LAYOUT & FLOW (CRITICAL)**:
-- **Figure Interruptions**: If a figure or table splits a sentence, finish the sentence first.
-- **Fragments**: Handle page-spanning sentences gracefully.
-
-**3. MATH (INTEGRATED)**:
-- Read the sentence and formula, then provide a 2-3 sentence insight on the strategic intent.
-
-**OUTPUT FORMAT**:
-- Separate pages with "---PAGE_BREAK---".
-- If empty/skipped, write "[[EMPTY]]".
+**LANGUAGE: GERMAN**
+Translate the paper content faithfully into German, sentence by sentence. Maintain academic register. Do NOT add explanations or interpretations that are not in the original paper. Translate figure/table captions too if they appear in the text flow.
 ` : `
-You are an expert academic narrator. Your task is to produce a coherent, intelligent narrative script from the provided academic paper pages.
-
-**1. STRUCTURE & FORMATTING**:
-- Use Markdown headers (#, ##, ###).
-- Use double newlines (\\n\\n) for paragraphs.
-
-**2. LAYOUT & FLOW (CRITICAL)**:
-- **Figure Interruptions**: Repair broken sentences that are split by figures or tables.
-- **Fragments**: Handle page-spanning sentences gracefully.
-
-**3. MATH (INTEGRATED)**:
-- Read the sentence and formula, then provide a 2-3 sentence insight on the strategic intent.
-
-**OUTPUT FORMAT**:
-- Separate pages with "---PAGE_BREAK---".
-- If empty/skipped, write "[[EMPTY]]".
+**LANGUAGE: ENGLISH**
+Reproduce the paper content in English faithfully.
 `}
+**OUTPUT FORMAT:**
+- Separate pages with "---PAGE_BREAK---".
+- If a page is empty or contains only figures/tables with no text, write "[[EMPTY]]".
 `;
 
 // ... RequestScheduler implementation (unchanged)
@@ -261,7 +246,7 @@ export const extractScriptBatch = async (
     contents: [{ parts }],
     config: {
       systemInstruction: getSystemInstruction(language),
-      maxOutputTokens: 8192
+      maxOutputTokens: 16384
     }
   }, { signal });
 
@@ -270,6 +255,13 @@ export const extractScriptBatch = async (
   pages.forEach((p, index) => {
     let text = splitResults[index] || "";
     text = text.replace(/\[\[EMPTY\]\]/g, "").replace(/\[\[SKIPPED_SECTION\]\]/g, "").trim();
+    // Post-processing: strip AI preambles that sometimes leak through
+    text = text.replace(/^\s*(Hier ist das Skript[^\n]*\n)/i, '');
+    text = text.replace(/^\s*(Here is the (script|narration|transcript)[^\n]*\n)/i, '');
+    text = text.replace(/^\s*---\s*\n/, '');
+    // Collapse excessive blank lines (3+ newlines → 2)
+    text = text.replace(/\n{3,}/g, '\n\n');
+    text = text.trim();
     resultMap.set(p.pageNum, text);
   });
   return resultMap;
