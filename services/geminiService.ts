@@ -25,6 +25,7 @@ You are an expert academic narrator. Your SOLE job is to produce a FAITHFUL, clo
 3. **SKIP PAGE HEADERS & PAGE NUMBERS**: Remove running headers (e.g. "ALLOCATION OF TALENT AND U.S. ECONOMIC GROWTH 1445"), journal names, author names repeated at the top of pages, and standalone page numbers. These are layout artifacts, not content.
 4. **FAITHFUL TO SOURCE**: Reproduce the paper's actual content faithfully, sentence by sentence. Do NOT paraphrase, summarize, add commentary, or skip paragraphs. If a sentence spans a page break, complete it naturally.
 5. **MATH NOTATION**: Write mathematical expressions in LaTeX notation: use \`$...$\` for inline math and \`$$...$$\` for display math. For example: $p_{ig}(c) = \\frac{\\tilde{w}_{ig}(c)^\\theta}{\\sum_{s=1}^{M} \\tilde{w}_{sg}(c)^\\theta}$. Do NOT read out formulas character by character.
+6. **MATH INTUITION**: After each important equation or formula, provide 1-2 sentences of plain-language explanation describing what the equation means and its strategic/economic intuition. This helps listeners understand the math without seeing it.
 
 **FORMATTING:**
 - Use Markdown headers (#, ##, ###) to preserve section structure from the paper.
@@ -259,6 +260,11 @@ export const extractScriptBatch = async (
     text = text.replace(/^\s*(Hier ist das Skript[^\n]*\n)/i, '');
     text = text.replace(/^\s*(Here is the (script|narration|transcript)[^\n]*\n)/i, '');
     text = text.replace(/^\s*---\s*\n/, '');
+    // Strip running page headers (e.g. "1446  HSIEH, HURST, JONES, AND KLENOW" or "ALLOCATION OF TALENT... 1445")
+    text = text.replace(/^\s*\d{3,4}\s+[A-Z][A-Z\s,.\-&]+\s*\n/m, '');
+    text = text.replace(/^\s*[A-Z][A-Z\s,.\-&]+\s+\d{3,4}\s*\n/m, '');
+    // Strip copyright/footer lines
+    text = text.replace(/^\s*©\s*\d{4}[^\n]*$/m, '');
     // Collapse excessive blank lines (3+ newlines → 2)
     text = text.replace(/\n{3,}/g, '\n\n');
     text = text.trim();

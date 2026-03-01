@@ -99,12 +99,13 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
     }, [currentTime, currentPageData, processingMode]);
 
     const renderTextWithEvents = (text: string) => {
-        if (processingMode === 'text' || !currentPageData?.segments) {
-            return <span className="text-slate-700">{renderMathInText(text)}</span>;
-        }
+        // If text contains LaTeX math ($...$ or $$...$$), render the full text with KaTeX.
+        // Word-level TTS segments split $$...LaTeX...$$ across many individual <span>s,
+        // so the math regex can never see the complete pattern. For math pages we trade
+        // per-word highlighting for properly rendered formulas.
+        const textHasMath = text.includes('$$') || /\$[^$\n]+\$/.test(text);
 
-        // Fallback for old sessions that only have 1 segment per page
-        if (currentPageData.segments.length <= 1) {
+        if (processingMode === 'text' || !currentPageData?.segments || currentPageData.segments.length <= 1 || textHasMath) {
             return <span className="text-slate-700">{renderMathInText(text)}</span>;
         }
 
@@ -116,9 +117,6 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                 return <span key={index}>{segment.text}</span>;
             }
 
-            // Check if this segment's text contains LaTeX
-            const hasMath = segment.text.includes('$');
-
             return (
                 <span
                     key={index}
@@ -126,7 +124,7 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                     onDoubleClick={() => onWordDoubleClick(index)}
                     className={`cursor-pointer hover:underline decoration-indigo-300 underline-offset-4 transition-colors duration-200 rounded px-0.5 mx-0 -my-0.5 ${isActive ? 'bg-indigo-100/80 text-indigo-950 font-medium shadow-[inset_0_-2px_0_theme(colors.indigo.400)]' : 'text-slate-700'}`}
                 >
-                    {hasMath ? renderMathInText(segment.text) : segment.text}
+                    {segment.text}
                 </span>
             );
         });
