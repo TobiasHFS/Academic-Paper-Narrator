@@ -1,6 +1,6 @@
 # Academic Narrator Development Notes
 
-These notes describe earlier implementation work and ideas for further changes. They are not a guarantee of narration accuracy.
+Notes on extraction, speech generation and possible improvements.
 
 ## Goal
 
@@ -12,7 +12,7 @@ Make the app feel less like a PDF summarizer and more like a skilled human acade
 - preserve equations, then add short intuition when the paper does not already explain them
 - keep generated speech stable and smooth across long pages
 
-## Implemented in this pass
+## Current implementation
 
 - Extraction now receives bounded previous/next page text snippets so the model can repair broken sentences across page boundaries without transcribing neighboring pages.
 - The extraction prompt now explicitly rejects summary-style output and asks for brief figure/table interpretation after the relevant sentence is complete.
@@ -21,7 +21,7 @@ Make the app feel less like a PDF summarizer and more like a skilled human acade
 - Long page narration is split into smaller TTS chunks and stitched with short pauses to reduce voice drift and speed-up.
 - EPUB generation now escapes XML/HTML correctly and uses the same cleanup path as extraction.
 
-## Highest-impact next steps
+## Possible improvements
 
 1. Move Gemini calls behind a backend or serverless API.
    The browser currently needs an API key. For personal local use that may be acceptable, but any shared deployment should protect the key, enforce per-job limits, and store resumable job state.
