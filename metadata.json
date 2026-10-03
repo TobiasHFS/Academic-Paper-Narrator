@@ -1,5 +1,5 @@
 {
   "name": "Academic Narrator",
-  "description": "Upload academic PDFs to have them intelligently narrated, skipping boilerplate and explaining complex figures automatically.",
+  "description": "A local PDF reading tool with Gemini narration and EPUB export.",
   "requestFramePermissions": []
 }

@@ -1,6 +1,13 @@
 /// <reference types="vite/client" />
 import { GoogleGenAI, Modality } from "@google/genai";
 import { AudioSegment, PrescreenResult, PageCategory, PrescreenPage } from "../types";
+import {
+  ExtractionPageInput,
+  cleanExtractedPageText,
+  splitTextForTts,
+  textHead,
+  textTail
+} from "./narrationText";
 
 // Initialize the client
 const getAIClient = () => new GoogleGenAI({ apiKey: (import.meta.env.VITE_GEMINI_API_KEY as string) });
@@ -17,44 +24,47 @@ export const VOICE_PROFILES = [
 ];
 
 const getSystemInstruction = (language: 'en' | 'de') => `
-You are an expert academic narrator. Your SOLE job is to produce a FAITHFUL, close-to-verbatim narrative script from academic PDF pages. You are NOT summarizing — you are converting a PDF into a clean, readable, speakable script.
+You are an expert academic narrator. Your sole job is to produce a faithful, close-to-verbatim narrative script from academic PDF pages. You are not summarizing. You are converting a PDF into a clean, readable, speakable script.
 
-**ABSOLUTE RULES (NEVER VIOLATE):**
-1. **NO AI META-TEXT**: NEVER write preambles like "Hier ist das Skript", "Here is the script", "Here is the narration", or dividers like "---". Output ONLY the paper's content. Your very first word must be from the paper itself.
-2. **SKIP FOOTNOTES**: Do NOT include footnote markers (superscript numbers like ¹²³) or footnote text that appears at the bottom of pages. Omit them entirely.
-3. **SKIP PAGE HEADERS & PAGE NUMBERS**: Remove running headers (e.g. "ALLOCATION OF TALENT AND U.S. ECONOMIC GROWTH 1445"), journal names, author names repeated at the top of pages, and standalone page numbers. These are layout artifacts, not content.
-4. **FAITHFUL TO SOURCE**: Reproduce the paper's actual content faithfully, sentence by sentence. Do NOT paraphrase, summarize, add commentary, or skip paragraphs. If a sentence spans a page break, complete it naturally.
-5. **MATH NOTATION**: Write mathematical expressions in LaTeX notation: use \`$...$\` for inline math and \`$$...$$\` for display math. For example: $p_{ig}(c) = \\frac{\\tilde{w}_{ig}(c)^\\theta}{\\sum_{s=1}^{M} \\tilde{w}_{sg}(c)^\\theta}$. Do NOT read out formulas character by character.
-6. **MATH INTUITION**: After each important equation or formula, provide 1-2 sentences of plain-language explanation describing what the equation means and its strategic/economic intuition. This helps listeners understand the math without seeing it.
+**ABSOLUTE RULES:**
+1. **NO AI META-TEXT**: Never write preambles like "Here is the script", "Here is the narration", "Hier ist das Skript", markdown fences, or divider-only lines. Output only the paper content.
+2. **SKIP LAYOUT ARTIFACTS**: Omit footnote markers, footnote text, page numbers, running headers, publisher boilerplate, watermarks, URLs, journal metadata, and repeated author/title headers.
+3. **AVOID CITATION NOISE**: Omit dense citation clusters and repeated author-year parentheticals unless the citation is grammatically necessary for the sentence.
+4. **FAITHFUL TO SOURCE**: Read the body text in full, sentence by sentence. Do not paraphrase, summarize, or skip body paragraphs. This should sound like someone reading a serious book, not like a summary.
+5. **MATH NOTATION**: Preserve mathematical expressions in LaTeX notation with \`$...$\` for inline math and \`$$...$$\` for display math. Do not spell formulas character by character in the transcript.
+6. **MATH INTUITION**: After each important equation or formula, add 1-2 short plain-language sentences explaining the local intuition when the surrounding text does not already explain it.
 
 **FORMATTING:**
 - Use Markdown headers (#, ##, ###) to preserve section structure from the paper.
-- Use single blank lines between paragraphs. Do NOT insert excessive blank lines.
-- Break text into short, readable paragraphs for TTS pacing (separate with \\n\\n).
+- Use single blank lines between paragraphs.
+- Break very long paragraphs into shorter readable paragraphs for TTS pacing.
 
 **LAYOUT & FLOW:**
-- If a figure or table interrupts text mid-sentence, skip the figure/table and complete the sentence.
-- Handle page-spanning sentences gracefully — finish the thought from the previous page.
-- For figures/tables, you may briefly note "[Figure X]" or "[Table X]" as a placeholder, then continue with the text.
+- If a figure, table, equation block, or footnote interrupts a sentence, skip the interruption temporarily and complete the sentence first.
+- Use previous/next page snippets only to repair continuity. Do not transcribe neighboring snippet text unless it completes a sentence crossing the page boundary.
+- If the current page starts mid-sentence, omit that leading continuation from this page's output. It belongs to the previous page's narration when the previous page used next-page context to finish the sentence.
+- If you use next-page context to finish the final sentence of this page, include only the minimum words needed to finish that sentence, never the next full sentence.
+- For figures and tables, add a brief natural narration after the referring sentence or after the interrupted sentence is complete. Read the number/caption if useful, then state the main takeaway in one or two sentences. Do not inventory every axis tick, legend entry, or table cell.
+- If a table is too dense, summarize its role and main pattern briefly, then continue with the paper's body text.
 
 ${language === 'de' ? `
 **LANGUAGE: GERMAN**
-Translate the paper content faithfully into German, sentence by sentence. Maintain academic register. Do NOT add explanations or interpretations that are not in the original paper. Translate figure/table captions too if they appear in the text flow.
+Translate the paper content faithfully into German, sentence by sentence. Maintain academic register. Keep math in LaTeX. Figure and table narration should also be in German.
 ` : `
 **LANGUAGE: ENGLISH**
 Reproduce the paper content in English faithfully.
 `}
 **OUTPUT FORMAT:**
 - Separate pages with "---PAGE_BREAK---".
-- If a page is empty or contains only figures/tables with no text, write "[[EMPTY]]".
+- If a page is empty or contains no useful body/figure/table content, write "[[EMPTY]]".
 `;
 
 // ... RequestScheduler implementation (unchanged)
 class RequestScheduler {
   private queue: Array<{ task: () => Promise<any>; signal?: AbortSignal; resolve: (val: any) => void; reject: (err: any) => void }> = [];
   private activeCount = 0;
-  private maxConcurrent = 3;
-  private minInterval = 300;
+  private maxConcurrent = 1;
+  private minInterval = 1200;
   private lastRequestTime = 0;
 
   add<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -134,12 +144,11 @@ async function generateTtsWithRetry(ai: any, text: string, voiceName: string, si
     } catch (e: any) {
       if (e.name === "AbortError" || signal?.aborted) throw e;
 
-      const isQuota = e.message?.includes('429') || e.status === 429;
+      const message = String(e.message || '');
+      const isQuota = message.includes('429') || e.status === 429 || /quota|rate limit|resource_exhausted|exceeded/i.test(message);
       if (isQuota) {
-        if (attempt >= 5) throw e; // Prevent infinite loop on hard quota limits
-        const waitTime = 10000 + (Math.random() * 5000);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        attempt++;
+        e.status = e.status || 429;
+        throw e;
       } else {
         if (attempt >= 3) throw e;
         await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
@@ -229,18 +238,34 @@ CRITICAL: Return ONLY valid JSON, no markdown blocks, no other text.
 };
 
 export const extractScriptBatch = async (
-  pages: { pageNum: number; base64Image: string; rawText: string }[],
+  pages: ExtractionPageInput[],
   language: 'en' | 'de' = 'en',
   signal?: AbortSignal
 ): Promise<Map<number, string>> => {
   const ai = getAIClient();
   const parts: any[] = [];
   pages.forEach((p) => {
-    parts.push({ text: `\n\n--- START PAGE ${p.pageNum} ---\n` });
+    const pageLabel = p.realPageNum && p.realPageNum !== p.pageNum
+      ? `narration page ${p.pageNum}, original PDF page ${p.realPageNum}`
+      : `page ${p.pageNum}`;
+
+    parts.push({ text: `\n\n--- START ${pageLabel.toUpperCase()} ---\n` });
+    if (p.previousRawText?.trim()) {
+      parts.push({
+        text: `Previous page tail for continuity only (do not transcribe unless completing a broken sentence): "${textTail(p.previousRawText)}"\n`
+      });
+    }
     parts.push({ inlineData: { mimeType: 'image/jpeg', data: p.base64Image.split(',')[1] } });
-    parts.push({ text: `Context Text for Page ${p.pageNum}: "${p.rawText}"\n` });
+    parts.push({ text: `Raw PDF text for ${pageLabel}: "${textHead(p.rawText, 6000)}"\n` });
+    if (p.nextRawText?.trim()) {
+      parts.push({
+        text: `Next page head for continuity only (do not transcribe unless completing a broken sentence): "${textHead(p.nextRawText)}"\n`
+      });
+    }
   });
-  parts.push({ text: `\n\nTask: ${language === 'de' ? 'TRANSLATE and Transcribe' : 'Transcribe'} these ${pages.length} pages. Separate each page with "---PAGE_BREAK---".` });
+  parts.push({
+    text: `\n\nTask: ${language === 'de' ? 'Translate and transcribe' : 'Transcribe'} these ${pages.length} page(s) into a polished narration script. Keep each requested page's output in the same order and separate page outputs with "---PAGE_BREAK---".`
+  });
 
   const rawResult = await retryGenerate(ai, {
     model: 'gemini-2.5-flash',
@@ -254,21 +279,7 @@ export const extractScriptBatch = async (
   const resultMap = new Map<number, string>();
   const splitResults = rawResult.split('---PAGE_BREAK---');
   pages.forEach((p, index) => {
-    let text = splitResults[index] || "";
-    text = text.replace(/\[\[EMPTY\]\]/g, "").replace(/\[\[SKIPPED_SECTION\]\]/g, "").trim();
-    // Post-processing: strip AI preambles that sometimes leak through
-    text = text.replace(/^\s*(Hier ist das Skript[^\n]*\n)/i, '');
-    text = text.replace(/^\s*(Here is the (script|narration|transcript)[^\n]*\n)/i, '');
-    text = text.replace(/^\s*---\s*\n/, '');
-    // Strip running page headers (e.g. "1446  HSIEH, HURST, JONES, AND KLENOW" or "ALLOCATION OF TALENT... 1445")
-    text = text.replace(/^\s*\d{3,4}\s+[A-Z][A-Z\s,.\-&]+\s*\n/m, '');
-    text = text.replace(/^\s*[A-Z][A-Z\s,.\-&]+\s+\d{3,4}\s*\n/m, '');
-    // Strip copyright/footer lines
-    text = text.replace(/^\s*©\s*\d{4}[^\n]*$/m, '');
-    // Collapse excessive blank lines (3+ newlines → 2)
-    text = text.replace(/\n{3,}/g, '\n\n');
-    text = text.trim();
-    resultMap.set(p.pageNum, text);
+    resultMap.set(p.pageNum, cleanExtractedPageText(splitResults[index] || "", p));
   });
   return resultMap;
 };
@@ -284,7 +295,7 @@ async function retryGenerate(ai: any, params: any, extraConfig?: { signal?: Abor
       try {
         return response.text || "";
       } catch {
-        // Safety-blocked or malformed response — try extracting manually
+        // Safety-blocked or malformed response  -  try extracting manually
         const fallback = response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (fallback) return fallback;
         console.warn('Gemini response had no extractable text (possibly safety-blocked)');
@@ -306,6 +317,26 @@ async function retryGenerate(ai: any, params: any, extraConfig?: { signal?: Abor
   }
 }
 
+const TTS_SAMPLE_RATE = 24000;
+const TTS_BYTES_PER_SECOND = TTS_SAMPLE_RATE * 2;
+const TTS_INTER_CHUNK_PAUSE_MS = 140;
+
+const createSilencePcm = (durationMs: number): Uint8Array => {
+  const sampleCount = Math.round((TTS_SAMPLE_RATE * durationMs) / 1000);
+  return new Uint8Array(sampleCount * 2);
+};
+
+const concatenatePcm = (chunks: Uint8Array[]): Uint8Array => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const stitched = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    stitched.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return stitched;
+};
+
 export const synthesizeBatch = async (
   pages: { pageNum: number; text: string }[],
   voiceName: string = 'Fenrir',
@@ -322,13 +353,29 @@ export const synthesizeBatch = async (
 
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
-    // Process the entire page as a single TTS request
-    const pcmData = await ttsScheduler.add(() => generateTtsWithRetry(ai, page.text, voiceName, signal), signal);
+    const ttsChunks = splitTextForTts(page.text);
+    if (ttsChunks.length === 0) {
+      resultMap.set(page.pageNum, { audioUrl: "", segments: [] });
+      continue;
+    }
+
+    const pcmChunks: Uint8Array[] = [];
+    for (let i = 0; i < ttsChunks.length; i++) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (i > 0) pcmChunks.push(createSilencePcm(TTS_INTER_CHUNK_PAUSE_MS));
+      const chunkPcm = await ttsScheduler.add(
+        () => generateTtsWithRetry(ai, ttsChunks[i], voiceName, signal),
+        signal
+      );
+      pcmChunks.push(chunkPcm);
+    }
+
+    const pcmData = concatenatePcm(pcmChunks);
 
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     // We treat the full page as one continuous audio segment
-    const duration = pcmData.length / (24000 * 2);
+    const duration = pcmData.length / TTS_BYTES_PER_SECOND;
 
     // --- ZERO-COST AUDIO SYNC: SILENCE DETECTION & HEURISTICS ---
     // 1. Parse the text into sentences, roughly matching natural pauses
@@ -343,7 +390,7 @@ export const synthesizeBatch = async (
     // Silence config
     const silenceThreshold = 50; // Amplitude threshold (0-32768)
     const minSilenceMs = 250;
-    const minSilenceSamples = (24000 * minSilenceMs) / 1000;
+    const minSilenceSamples = (TTS_SAMPLE_RATE * minSilenceMs) / 1000;
 
     const pauseTimestamps: number[] = [];
     let currentSilenceLen = 0;
@@ -356,7 +403,7 @@ export const synthesizeBatch = async (
       } else {
         if (currentSilenceLen > minSilenceSamples) {
           // Record the timestamp of the END of the silence gap (when the next sentence starts)
-          pauseTimestamps.push(i / 24000);
+          pauseTimestamps.push(i / TTS_SAMPLE_RATE);
         }
         currentSilenceLen = 0;
       }
@@ -420,7 +467,7 @@ export const synthesizeBatch = async (
       }
     }
 
-    const finalAudioUrl = URL.createObjectURL(createWavBlob(pcmData, 24000));
+    const finalAudioUrl = URL.createObjectURL(createWavBlob(pcmData, TTS_SAMPLE_RATE));
     resultMap.set(page.pageNum, {
       audioUrl: finalAudioUrl,
       segments: pageSegments
@@ -437,7 +484,7 @@ export const generateVoicePreview = async (voiceName: string, language: 'en' | '
     : "This is a preview of my voice for your academic papers.";
 
   const pcm = await ttsScheduler.add(() => generateTtsWithRetry(ai, text, voiceName));
-  const blob = createWavBlob(pcm, 24000);
+  const blob = createWavBlob(pcm, TTS_SAMPLE_RATE);
   return URL.createObjectURL(blob);
 };
 

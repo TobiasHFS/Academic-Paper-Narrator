@@ -44,6 +44,7 @@ typings/
 
 # Optional npm cache directory
 .npm
+.npm-cache/
 
 # Optional eslint cache
 .eslintcache
@@ -127,3 +128,26 @@ dist-ssr/
 
 # Test papers
 TestPapers/
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+.analysis_deps/
+.v3_deps/
+.v3_torch/

@@ -211,7 +211,7 @@ export default function App() {
       <header className="mb-12 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 text-white mb-6 shadow-xl"><BookOpen className="w-8 h-8" /></div>
         <h1 className="text-4xl font-bold text-slate-900 mb-4 tracking-tight font-serif">Academic Narrator</h1>
-        <p className="text-lg text-slate-600 max-w-lg mx-auto leading-relaxed">Transform dense academic PDFs into clear, intelligent audio narrations.</p>
+        <p className="text-lg text-slate-600 max-w-lg mx-auto leading-relaxed">Read academic PDFs as text or listen to narrated pages.</p>
       </header>
       <FileUpload
         onFileSelect={handleFileSelect}
@@ -301,7 +301,7 @@ export default function App() {
                 transition={{ delay: 0.4 }}
                 className="text-lg text-slate-600 max-w-lg mx-auto leading-relaxed"
               >
-                Transform dense academic PDFs into clear, intelligent audio narrations.
+                Read academic PDFs as text or listen to narrated pages.
               </motion.p>
             </header>
 
@@ -331,7 +331,7 @@ export default function App() {
             className="flex flex-col items-center justify-center min-h-screen p-6"
           >
             <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mb-6" />
-            <h2 className="text-2xl font-bold text-slate-800 mb-2 font-serif">AI Analyzing Document</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2 font-serif">Checking document pages</h2>
             <p className="text-slate-500 max-w-sm text-center">
               Scanning pages to identify formatting, tables of contents, and references so you only listen to what matters...
             </p>

@@ -1,18 +1,16 @@
-// We access the global pdfjsLib injected via script tag in index.html
-declare global {
-  interface Window {
-    pdfjsLib: any;
-  }
-}
+import * as pdfjsLib from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export const loadPdf = async (file: File | Uint8Array): Promise<any> => {
   const data = file instanceof Uint8Array ? file : await file.arrayBuffer();
-  const loadingTask = window.pdfjsLib.getDocument({ data });
+  const loadingTask = pdfjsLib.getDocument({ data });
   return loadingTask.promise;
 };
 
 // Global mutex to serialize PDF.js render operations.
-// PDF.js uses a single internal web worker per document — concurrent page.render()
+// PDF.js uses a single internal web worker per document  -  concurrent page.render()
 // calls from multiple extraction workers can deadlock or corrupt the output.
 let renderLock: Promise<void> = Promise.resolve();
 const acquireRenderLock = (): Promise<() => void> => {

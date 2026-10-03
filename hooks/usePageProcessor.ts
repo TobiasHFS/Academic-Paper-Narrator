@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { NarratedPage } from '../types';
 import { renderPageToImage, extractPageText } from '../services/pdfService';
 import { extractScriptBatch, synthesizeBatch } from '../services/geminiService';
+import { ExtractionPageInput, cleanExtractedPageText, dedupePageStart } from '../services/narrationText';
 
 interface UsePageProcessorProps {
     pdfDoc: any;
@@ -13,10 +14,9 @@ interface UsePageProcessorProps {
     selectedPages?: number[];  // Original PDF page numbers to process (if provided, maps virtual->real)
 }
 
-const MAX_EXTRACTION_WORKERS = 2;
-const BATCH_SIZE_EXTRACTION = 3;
-const MAX_SYNTHESIS_WORKERS = 3;
-const MAX_TTS_CHARS_PER_BATCH = 4500;
+const MAX_EXTRACTION_WORKERS = 1;
+const BATCH_SIZE_EXTRACTION = 1;
+const MAX_SYNTHESIS_WORKERS = 1;
 
 export function usePageProcessor({
     pdfDoc,
@@ -36,11 +36,13 @@ export function usePageProcessor({
     const [activeExtractionWorkers, setActiveExtractionWorkers] = useState(0);
     const [activeSynthesisWorkers, setActiveSynthesisWorkers] = useState(0);
     const [apiError, setApiError] = useState<string | undefined>(undefined);
+    const [ttsUnavailable, setTtsUnavailable] = useState(false);
 
     // Create an abort controller that lives alongside the component instance
     const abortControllerRef = useRef(new AbortController());
     // Track pages already dispatched to workers so state-lag can't cause duplicate batches
     const dispatchedPagesRef = useRef<Set<number>>(new Set());
+    const rawTextCacheRef = useRef<Map<number, string>>(new Map());
 
     // Abort all requests when the component unmounts (e.g., when 'X' is clicked returning to upload screen)
     useEffect(() => {
@@ -52,6 +54,7 @@ export function usePageProcessor({
             controller.abort();
             // Clear dispatched set when document changes so tracking resets cleanly
             dispatchedPagesRef.current.clear();
+            rawTextCacheRef.current.clear();
         };
     }, [pdfDoc]);
 
@@ -66,31 +69,60 @@ export function usePageProcessor({
             })));
             // Clear dispatched set when page list is re-initialized
             dispatchedPagesRef.current.clear();
+            rawTextCacheRef.current.clear();
+            setApiError(undefined);
+            setTtsUnavailable(false);
         }
     }, [totalPages]);
 
-    const updatePageStatus = (pageNum: number, status: NarratedPage['status']) => {
+    const updatePageStatus = (pageNum: number, status: NarratedPage['status'], errorMessage?: string) => {
         setPages(prev => {
             const copy = [...prev];
-            if (copy[pageNum - 1]) copy[pageNum - 1] = { ...copy[pageNum - 1], status };
+            if (copy[pageNum - 1]) {
+                copy[pageNum - 1] = { ...copy[pageNum - 1], status, errorMessage };
+            }
             return copy;
         });
+    };
+
+    const getNextTextStatus = (): NarratedPage['status'] =>
+        processingMode === 'text' || ttsUnavailable ? 'ready' : 'extracted';
+
+    const isQuotaError = (error: any): boolean => {
+        const message = String(error?.message || error || '');
+        return error?.status === 429 || /429|quota|rate limit|resource_exhausted|exceeded/i.test(message);
+    };
+
+    const getRawTextForPage = async (pageNum: number): Promise<string> => {
+        if (!pdfDoc || pageNum < 1 || pageNum > totalPages) return "";
+
+        const cached = rawTextCacheRef.current.get(pageNum);
+        if (cached !== undefined) return cached;
+
+        const realPageNum = getRealPageNum(pageNum);
+        let rawText = "";
+        try {
+            rawText = await extractPageText(pdfDoc, realPageNum);
+        } catch (e) {
+            console.warn('Text extraction failed for page context', pageNum, e);
+        }
+        rawTextCacheRef.current.set(pageNum, rawText);
+        return rawText;
     };
 
     const performBatchExtraction = async (pageNums: number[]) => {
         pageNums.forEach(p => updatePageStatus(p, 'analyzing'));
 
-        // Hoist outside try — so catch block can access them for per-page retry
+        // Hoist outside try  -  so catch block can access them for per-page retry
         const rawTextMap = new Map<number, string>();
-        const batchPayload: { pageNum: number; base64Image: string; rawText: string }[] = [];
+        const batchPayload: ExtractionPageInput[] = [];
 
         try {
 
             // Serialize local PDF.js extractions to prevent web worker concurrent rendering deadlocks
             for (const pageNum of pageNums) {
                 const realPageNum = getRealPageNum(pageNum);
-                let rawText = "";
-                try { rawText = await extractPageText(pdfDoc, realPageNum); } catch (e) { console.warn('Text fallthrough', e); }
+                const rawText = await getRawTextForPage(pageNum);
                 rawTextMap.set(pageNum, rawText);
 
                 let img = pages[pageNum - 1]?.imageUrl;
@@ -107,14 +139,34 @@ export function usePageProcessor({
                     }
                 }
                 if (img) {
-                    batchPayload.push({ pageNum, base64Image: img, rawText });
+                    batchPayload.push({ pageNum, realPageNum, base64Image: img, rawText });
+                } else if (rawText.trim()) {
+                    const nextStatus = getNextTextStatus();
+                    setPages(prev => {
+                        const copy = [...prev];
+                        if (copy[pageNum - 1] && copy[pageNum - 1].status === 'analyzing') {
+                            const cleanedText = cleanExtractedPageText(rawText, { rawText, pageNum, realPageNum, source: 'raw' });
+                            const text = dedupePageStart(copy[pageNum - 2]?.originalText, cleanedText);
+                            copy[pageNum - 1] = {
+                                ...copy[pageNum - 1],
+                                originalText: text,
+                                status: nextStatus,
+                                errorMessage: 'PDF image rendering failed; using embedded PDF text instead.'
+                            };
+                        }
+                        return copy;
+                    });
                 } else {
-                    // Update this specific page to error so it doesn't hang in 'analyzing'
-                    updatePageStatus(pageNum, 'error');
+                    updatePageStatus(pageNum, 'error', 'PDF image rendering and embedded text extraction both failed.');
                 }
             }
 
             if (batchPayload.length === 0) return;
+
+            for (const payload of batchPayload) {
+                payload.previousRawText = await getRawTextForPage(payload.pageNum - 1);
+                payload.nextRawText = await getRawTextForPage(payload.pageNum + 1);
+            }
 
             batchPayload.sort((a, b) => a.pageNum - b.pageNum);
             const resultsMap = await extractScriptBatch(batchPayload, language, abortControllerRef.current.signal);
@@ -127,9 +179,10 @@ export function usePageProcessor({
                     const idx = pageNum - 1;
                     if (copy[idx] && copy[idx].status === 'analyzing') {
                         const llmText = resultsMap.get(pageNum) || "";
-                        const text = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
-                        const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
-                        copy[idx] = { ...copy[idx], originalText: text, status: nextStatus };
+                        const unverifiedText = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
+                        const text = dedupePageStart(copy[idx - 1]?.originalText, unverifiedText);
+                        const nextStatus = getNextTextStatus();
+                        copy[idx] = { ...copy[idx], originalText: text, status: nextStatus, errorMessage: undefined };
                     }
                 });
                 return copy;
@@ -142,7 +195,7 @@ export function usePageProcessor({
             console.warn('Batch extraction failed, retrying pages individually:', error.message || error);
 
             // Per-page retry: Don't let one problematic page crash its neighbors.
-            // Try each page one at a time — most will succeed even if the batch failed.
+            // Try each page one at a time  -  most will succeed even if the batch failed.
             for (const pageNum of pageNums) {
                 if (abortControllerRef.current.signal.aborted) return;
 
@@ -154,12 +207,13 @@ export function usePageProcessor({
                         [payload], language, abortControllerRef.current.signal
                     );
                     const llmText = singleResult.get(pageNum) || "";
-                    const text = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
-                    const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
+                    const unverifiedText = llmText.trim() ? llmText : (rawTextMap.get(pageNum) || "");
+                    const nextStatus = getNextTextStatus();
                     setPages(prev => {
                         const copy = [...prev];
                         if (copy[pageNum - 1] && copy[pageNum - 1].status === 'analyzing') {
-                            copy[pageNum - 1] = { ...copy[pageNum - 1], originalText: text, status: nextStatus };
+                            const text = dedupePageStart(copy[pageNum - 2]?.originalText, unverifiedText);
+                            copy[pageNum - 1] = { ...copy[pageNum - 1], originalText: text, status: nextStatus, errorMessage: undefined };
                         }
                         return copy;
                     });
@@ -168,14 +222,26 @@ export function usePageProcessor({
                     console.error(`Individual retry failed for page ${pageNum}:`, retryErr.message);
                     // Final fallback: use raw PDF.js text
                     const fallbackText = rawTextMap.get(pageNum) || "";
-                    const nextStatus = processingMode === 'text' ? 'ready' : 'extracted';
+                    const nextStatus = getNextTextStatus();
                     setPages(prev => {
                         const copy = [...prev];
                         if (copy[pageNum - 1] && copy[pageNum - 1].status === 'analyzing') {
                             if (fallbackText.trim()) {
-                                copy[pageNum - 1] = { ...copy[pageNum - 1], originalText: fallbackText, status: nextStatus };
+                                const realPageNum = getRealPageNum(pageNum);
+                                const cleanedText = cleanExtractedPageText(fallbackText, { rawText: fallbackText, pageNum, realPageNum, source: 'raw' });
+                                const text = dedupePageStart(copy[pageNum - 2]?.originalText, cleanedText);
+                                copy[pageNum - 1] = {
+                                    ...copy[pageNum - 1],
+                                    originalText: text,
+                                    status: nextStatus,
+                                    errorMessage: `AI extraction failed; using embedded PDF text. ${retryErr.message || ''}`.trim()
+                                };
                             } else {
-                                copy[pageNum - 1] = { ...copy[pageNum - 1], status: 'error' };
+                                copy[pageNum - 1] = {
+                                    ...copy[pageNum - 1],
+                                    status: 'error',
+                                    errorMessage: retryErr.message || 'AI extraction failed and no embedded PDF text was available.'
+                                };
                             }
                         }
                         return copy;
@@ -223,13 +289,20 @@ export function usePageProcessor({
                 return; // Silently exit without causing errors on unmount
             }
             console.error(`Synthesis Batch error`, error);
-            if (error.status === 429 || error.message?.includes('429')) {
-                setApiError("Daily TTS Audio Limit Reached (429 Quota Exceeded). Please try again tomorrow or upgrade your AI Studio tier.");
+            if (isQuotaError(error)) {
+                setTtsUnavailable(true);
+                setApiError("TTS quota/rate limit reached. Continuing in text-only mode for this document.");
+                setPages(prev => prev.map(page => (
+                    page.status === 'extracted' || page.status === 'synthesizing'
+                        ? { ...page, status: 'ready', errorMessage: 'Audio generation skipped because the TTS quota/rate limit was reached.' }
+                        : page
+                )));
+                return;
             }
-            // IMPORTANT: Don't set to 'error' — synthesis failure should NOT hide
+            // IMPORTANT: Don't set to 'error'  -  synthesis failure should NOT hide
             // the perfectly good extracted text. Set to 'ready' so the text stays
             // visible; the user just won't have audio for these pages.
-            pageNums.forEach(p => updatePageStatus(p, 'ready'));
+            pageNums.forEach(p => updatePageStatus(p, 'ready', error.message || 'Audio generation failed; text is still available.'));
         }
     };
 
@@ -293,7 +366,7 @@ export function usePageProcessor({
 
     // Manager 2: Synthesis Pool
     useEffect(() => {
-        if (!pdfDoc || pages.length === 0 || processingMode === 'text') return;
+        if (!pdfDoc || pages.length === 0 || processingMode === 'text' || ttsUnavailable) return;
 
         if (activeSynthesisWorkers < MAX_SYNTHESIS_WORKERS) {
             const findBatchToSynth = (): NarratedPage[] | null => {
@@ -309,27 +382,7 @@ export function usePageProcessor({
 
                 if (startIdx === -1) return null;
 
-                const batch: NarratedPage[] = [];
-                let currentChars = 0;
-
-                for (let i = startIdx; i < totalPages; i++) {
-                    const p = pages[i];
-                    if (p.status !== 'extracted') break;
-                    const len = p.originalText.length;
-                    if (batch.length === 0) {
-                        batch.push(p);
-                        currentChars += len;
-                        if (currentChars >= MAX_TTS_CHARS_PER_BATCH) break;
-                    } else {
-                        if (currentChars + len <= MAX_TTS_CHARS_PER_BATCH) {
-                            batch.push(p);
-                            currentChars += len;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                return batch;
+                return [pages[startIdx]];
             };
 
             const batch = findBatchToSynth();
@@ -338,7 +391,7 @@ export function usePageProcessor({
                 performBatchSynthesis(batch).finally(() => setActiveSynthesisWorkers(prev => prev - 1));
             }
         }
-    }, [activeSynthesisWorkers, pages, currentPlayingPage, totalPages, pdfDoc, processingMode]);
+    }, [activeSynthesisWorkers, pages, currentPlayingPage, totalPages, pdfDoc, processingMode, ttsUnavailable]);
 
     return {
         pages,

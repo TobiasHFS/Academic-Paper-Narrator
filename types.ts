@@ -19,6 +19,7 @@ export interface NarratedPage {
   segments?: AudioSegment[]; // Timing data for precise seeking
   status: 'pending' | 'analyzing' | 'extracted' | 'synthesizing' | 'ready' | 'error';
   imageUrl?: string; // Base64 of the page for reference
+  errorMessage?: string;
 }
 
 export enum PlaybackState {

@@ -1,5 +1,14 @@
 import JSZip from 'jszip';
 import { NarratedPage } from '../types';
+import { cleanNarrativeText } from './narrationText';
+
+const escapeXml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 
 /**
  * "Stitches" the text from multiple pages into one continuous stream,
@@ -14,13 +23,13 @@ export const cleanAndStitchText = (pages: NarratedPage[]): string => {
   let fullText = "";
 
   for (let i = 0; i < sortedPages.length; i++) {
-    let currentText = sortedPages[i].originalText.trim();
+    let currentText = cleanNarrativeText(sortedPages[i].originalText);
 
     // Skip empty pages
     if (!currentText) continue;
 
     if (i < sortedPages.length - 1) {
-      const nextText = sortedPages[i + 1].originalText.trim();
+      const nextText = cleanNarrativeText(sortedPages[i + 1].originalText);
 
       // LOGIC: Repair broken sentences.
       // Condition: Current page does NOT end with sentence punctuation (. ! ? :)
@@ -53,7 +62,7 @@ export const cleanAndStitchText = (pages: NarratedPage[]): string => {
   }
 
   // 2. Final cleanup of any lingering "--- Page X ---" artifacts if the AI hallucinated them inside the text.
-  fullText = fullText.replace(/--- Page \d+ ---/g, "");
+  fullText = cleanNarrativeText(fullText.replace(/--- Page \d+ ---/g, ""));
 
   return fullText;
 };
@@ -62,14 +71,24 @@ export const cleanAndStitchText = (pages: NarratedPage[]): string => {
  * Converts Markdown headings to HTML for the EPUB.
  */
 const markdownToHtml = (text: string): string => {
-  return text
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/\n\n/g, '</p><p>') // Basic paragraph conversion
-    .replace(/\n/g, ' '); // Soft wraps become spaces within paragraphs
+  const inlineMarkdownToHtml = (value: string): string =>
+    escapeXml(value)
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+  return cleanNarrativeText(text)
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean)
+    .map(block => {
+      const heading = block.match(/^(#{1,3})\s+(.+)$/s);
+      if (heading) {
+        const level = heading[1].length;
+        return `<h${level}>${inlineMarkdownToHtml(heading[2].replace(/\n/g, ' '))}</h${level}>`;
+      }
+      return `<p>${inlineMarkdownToHtml(block.replace(/\n/g, ' '))}</p>`;
+    })
+    .join('\n');
 };
 
 /**
@@ -78,11 +97,12 @@ const markdownToHtml = (text: string): string => {
 export const generateEpub = async (fileName: string, pages: NarratedPage[], language: 'en' | 'de' = 'en'): Promise<Blob> => {
   const zip = new JSZip();
   const cleanText = cleanAndStitchText(pages);
+  const safeTitle = escapeXml(fileName);
   const htmlContent = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>${fileName}</title>
+  <title>${safeTitle}</title>
   <style>
     body { font-family: serif; line-height: 1.5; margin: 2em; }
     h1 { text-align: center; margin-bottom: 1em; }
@@ -91,8 +111,8 @@ export const generateEpub = async (fileName: string, pages: NarratedPage[], lang
   </style>
 </head>
 <body>
-  <h1>${fileName}</h1>
-  <p>${markdownToHtml(cleanText)}</p>
+  <h1>${safeTitle}</h1>
+  ${markdownToHtml(cleanText)}
 </body>
 </html>`;
 
@@ -117,7 +137,7 @@ export const generateEpub = async (fileName: string, pages: NarratedPage[], lang
   oebps?.file("content.opf", `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-        <dc:title>${fileName}</dc:title>
+        <dc:title>${safeTitle}</dc:title>
         <dc:language>${language}</dc:language>
         <dc:identifier id="BookId">urn:uuid:${crypto.randomUUID()}</dc:identifier>
     </metadata>
@@ -139,7 +159,7 @@ export const generateEpub = async (fileName: string, pages: NarratedPage[], lang
         <meta name="dtb:totalPageCount" content="0"/>
         <meta name="dtb:maxPageNumber" content="0"/>
     </head>
-    <docTitle><text>${fileName}</text></docTitle>
+    <docTitle><text>${safeTitle}</text></docTitle>
     <navMap>
         <navPoint id="navPoint-1" playOrder="1">
             <navLabel><text>Start</text></navLabel>

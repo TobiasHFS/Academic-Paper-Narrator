@@ -1,73 +1,38 @@
 # Academic Paper Narrator
 
-> **Hey!** This is a side project where I'm experimenting with Google's [AntiGravity](https://blog.google/technology/google-deepmind/antigravity/) AI coding platform to see how far I can push it to build something actually useful for me. The entire codebase was built collaboratively with AI — I just love tinkering with new technology and seeing where it goes. Don't expect perfection, but it works surprisingly well!
+A local React app that turns PDF pages into narration using Google Gemini. It supports English and German, formula display, page selection, audio playback and EPUB export.
 
-## What is this?
+This is a personal reading tool under development. Generated text can omit or misread content, and added explanations may be wrong. Check the original paper when accuracy matters.
 
-A browser-based tool that turns academic PDFs into narrated audio. Upload a paper, and it uses Google Gemini to read it, clean up the text, and generate natural-sounding narration — all running in your browser.
+## Run locally
 
-It exists because I got tired of trying to read dense papers on screens and wanted something that could just *read them to me* properly, without mangling multi-column layouts or reading footnotes in the middle of sentences.
+Use Node.js 22.12 or newer and npm.
 
-## What it does
-
-- **Reads PDFs visually** — Uses Gemini's vision model to "see" the page layout instead of extracting raw text, so it handles multi-column papers, figures, and weird formatting without issues
-- **Generates audio narration** — Turns the cleaned-up text into natural speech using Gemini's TTS models
-- **Smart seeking** — Double-click any word in the transcript to jump the audio to that spot
-- **Page pre-screening** — Automatically detects cover pages, table of contents, references, etc. and lets you choose which pages to process
-- **Background processing** — Processes pages in parallel so you can start listening while the rest is still being prepared
-- **Export options** — Download the full audio as WAV or export the cleaned text as an EPUB eBook
-- **Save/load sessions** — Save your progress and come back to it later
-
-## Tech stack
-
-- React + TypeScript + Vite
-- Google Gemini API (vision, text processing, TTS)
-- PDF.js for rendering
-- Tailwind CSS
-- No backend — everything runs client-side
-
-## Getting started
-
-### You'll need
-
-- [Node.js](https://nodejs.org/) (v18+)
-- A [Google Gemini API key](https://aistudio.google.com/)
-
-### Setup
-
-```bash
-git clone https://github.com/TobiasHFS/Academic-Paper-Narrator.git
-cd Academic-Paper-Narrator
-npm install
+```sh
+npm ci
 ```
 
-Create a `.env` file:
+Copy `.env.example` to `.env.local`, add your own Gemini API key, then run:
 
-```env
-VITE_GEMINI_API_KEY=your_api_key_here
-```
-
-### Run it
-
-```bash
+```sh
 npm run dev
 ```
 
-Then open `http://localhost:5173` in your browser.
+Open the local address printed by Vite. `npm run build` checks TypeScript and creates a local build.
 
-There's also a `start.bat` if you're on Windows and just want to double-click something.
+## Data and API key
 
-## How it works (roughly)
+Selected page text or page images are sent to Google Gemini for processing. Narration text is also sent for speech generation. Use documents you have permission to process with that service. Requests use your account and may incur charges.
 
-1. You upload a PDF
-2. Each page gets rendered as an image
-3. Gemini's vision model reads the page and extracts clean text (ignoring headers, footers, footnotes)
-4. The text gets split into chunks and sent to Gemini's TTS model
-5. Audio chunks get stitched together with timing data so seeking works
-6. You listen, read along, or export
+The key is used by browser code. Vite embeds `VITE_` variables in builds, so a build made with your key exposes it to anyone receiving that build. Keep this setup for personal local use. Do not publish a build with a personal or shared API key. A hosted version needs server-side credentials and access controls.
 
-Pages are processed with a priority queue — the current page and the next couple get top priority, while the rest fills in the background.
+Session exports may contain paper text and generated audio. They belong outside this source repository. The included voice previews are short generated sample phrases, not uploaded papers.
 
-## License
+## Code
 
-[MIT](LICENSE) — do whatever you want with it.
+- `components/`: reading and playback interface
+- `hooks/usePageProcessor.ts`: processing queue
+- `services/`: PDF handling, Gemini requests, EPUB export and local storage
+- `scripts/generate-previews.mjs`: optional sample generation using your API account
+
+MIT licensed. Third-party packages retain their own licenses.

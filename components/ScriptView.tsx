@@ -53,6 +53,7 @@ function renderMathInText(text: string): React.ReactNode[] {
         try {
             const html = katex.renderToString(seg.content, {
                 throwOnError: false,
+                trust: false,
                 displayMode: seg.type === 'display-math',
                 output: 'html',
             });
@@ -175,6 +176,9 @@ export const ScriptView: React.FC<ScriptViewProps> = ({
                     <div className="flex flex-col items-center justify-center h-full text-red-500 gap-2 p-8 text-center">
                         <AlertCircle className="w-8 h-8" />
                         <p>An error occurred processing this page.</p>
+                        {currentPageData.errorMessage && (
+                            <p className="text-xs text-red-400 max-w-md">{currentPageData.errorMessage}</p>
+                        )}
                     </div>
                 )}
                 {currentPageData?.status === 'ready' && currentPageData?.originalText && (

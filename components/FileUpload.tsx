@@ -371,6 +371,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             <p className="text-slate-500">
               {language === 'de' ? 'PDF hierher ziehen oder klicken.' : 'Drag and drop your PDF here, or click to browse.'}
             </p>
+            <p className="text-xs text-slate-500 mt-2">
+              {language === 'de' ? 'Ausgewählte Seiten werden mit Ihrem API-Schlüssel an Google Gemini gesendet.' : 'Selected pages are sent to Google Gemini using your API key.'}
+            </p>
             <p className="text-xs text-slate-400 mt-2">
               {mode === 'audio'
                 ? (language === 'de' ? `Sprecher: ${VOICE_PROFILES.find(v => v.name === selectedVoice)?.label} • Bis zu 100 Seiten` : `Voice: ${VOICE_PROFILES.find(v => v.name === selectedVoice)?.label} • Up to 100 pages`)
