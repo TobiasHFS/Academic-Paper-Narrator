@@ -13,7 +13,7 @@
     "@types/jszip": "^3.4.0",
     "framer-motion": "^12.34.3",
     "jszip": "^3.10.1",
-    "katex": "^0.16.33",
+    "katex": "^0.18.2",
     "lucide-react": "^0.292.0",
     "pdf-lib": "^1.17.1",
     "react": "^18.2.0",
@@ -29,7 +29,7 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^5.2.2",
-    "vite": "^8.3.2",
+    "vite": "^8.3.3",
     "@tailwindcss/vite": "^4.3.3"
   },
   "license": "MIT",
