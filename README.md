@@ -27,3 +27,7 @@ The API key runs in the browser. A build made with it contains the key, so keep 
 `components/` contains the reading interface; `services/` handles PDFs, Gemini requests, EPUB export and local storage. The included voice samples are short generated previews. `scripts/generate-previews.mjs` can regenerate them using your API account.
 
 [MIT license](LICENSE).
+
+## AI assistance
+
+This project was developed with heavy AI assistance. Codex and Google Antigravity are the main coding tools I use across these projects.
